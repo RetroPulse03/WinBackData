@@ -2,9 +2,9 @@
 """Build a 3D viewer for WinBack's characters from your ROM.
 
 This writes one HTML file holding every model's near detail level, split into
-its 15 body parts, with textures. Open it in a browser to look at the models
-and to mix parts from different characters. The format is described in
-docs/characters.md. The file is made from the ROM, so it must never be committed
+its 15 body parts and the joints between them, with textures. Open it in a browser
+to look at the models and to mix parts from different characters. The format is
+described in docs/characters.md. The file is made from the ROM, so it must never be committed
 or shared.
 
 Usage: python tools/character_viewer.py <rom> [output.html]
@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extract_characters import (DL_TABLE, JEAN_LUC, MODEL_COUNT, MODEL_INFO, TEX_TABLE, VTX_TABLE, decode, read_u32,
                                 table_entry, unpack)
+from game_code import Cpu
 
 # func_8006A508 picks one of these by obj+0x175A. Each holds 30 floats.
 SKELETON_TABLES = {0: 0x80107490, 2: 0x80107508, 1: 0x80107580}
@@ -28,6 +29,24 @@ COMBINE_TINT = 0xFC11FE04     # texture x primitive colour x light
 COMBINE_COLOUR = 0xFC3239FF   # primitive colour x light
 COMBINER_KIND = {COMBINE_TEXTURE: 0, COMBINE_TINT: 1, COMBINE_COLOUR: 2}
 
+# Joints exist for models from Jean-Luc up. See docs/characters.md (Joints).
+FIRST_JOINTED_MODEL = 0x22
+ASSET_FILE_ROM = 0xF87B0
+ASSET_FILE_VRAM = 0x80229A00
+ASSET_FILE_SIZE = 0x33000
+JOINT_SLOTS = 0x801CC710
+OBJECT = 0x80600000
+JOINT_DL = 0x80700000
+# Which part decides a joint's look when mixing, by its vertices in the slot.
+# Elbows share a list of (left, right), since their two blocks aren't tied to a side here.
+JOINT_OWNERS = {0x208: 4, 0x308: 1, 0x008: 5, 0x108: 2, 0x608: 0, 0x408: (10, 13), 0x508: (10, 13)}
+
+# Rotations (three axes) of each kind of part in the rest pose. +Z of the world is
+# the way the character faces, +Y is up.
+LIMB = ((0, -1, 0), (0, 0, 1), (-1, 0, 0))
+TORSO = ((0, 1, 0), (0, 0, 1), (1, 0, 0))
+HEAD = ((0, 0, 1), (0, 1, 0), (-1, 0, 0))
+
 
 def signed8(value):
     return value - 256 if value > 127 else value
@@ -36,7 +55,11 @@ def signed8(value):
 class Part:
     """Walks one part's display list into triangles grouped by material."""
 
-    def __init__(self, dl, vtx, offset):
+    def __init__(self, dl, vtx, offset, asset_file=0):
+        self.dl = dl
+        self.vtx = vtx
+        self.asset_file = asset_file
+        self.group = None
         self.batches = {}
         self.tile = None
         self.size = (0, 0, 0, 0)
@@ -46,7 +69,11 @@ class Part:
         self.prim = 0xFFFFFFFF
         self.double_sided = False
         self.textured_without_image = False
-        buffer = [None] * 32
+        self.buffer = [None] * 32
+        self.walk(offset)
+
+    def walk(self, offset):
+        dl, vtx, buffer = self.dl, self.vtx, self.buffer
         while True:
             w0, w1 = struct.unpack(">II", dl[offset:offset + 8])
             offset += 8
@@ -55,8 +82,13 @@ class Part:
                 count = (w0 >> 12) & 0xFF
                 end = (w0 >> 1) & 0x7F
                 base = w1 & 0xFFFFFF
+                self.group = base
                 for i in range(count):
                     buffer[end - count + i] = struct.unpack(">3hHhh3bB", vtx[base + i * 16:base + i * 16 + 16])
+            elif op == 0xDE:  # G_DL, only found in the joints' lists, into segment 2
+                self.walk(self.asset_file + (w1 & 0xFFFFFF))
+                if (w0 >> 16) & 0xFF:
+                    return
             elif op == 0x05:  # G_TRI1
                 self.triangle(buffer, w0)
             elif op == 0x06:  # G_TRI2
@@ -98,7 +130,7 @@ class Part:
             height = self.size[3] // 4 + 1
             material += (self.image, self.palette if tile["fmt"] == 2 else None, tile["fmt"], tile["siz"], width, height,
                          tile["cms"], tile["masks"], tile["cmt"], tile["maskt"])
-        batch = self.batches.setdefault(material, [])
+        batch = self.batches.setdefault((self.group, material), [])
         for shift in (16, 8, 0):
             x, y, z, _, s, t, nx, ny, nz, _ = buffer[((word >> shift) & 0xFF) // 2]
             # S10.5 coordinates, at the 0.5 scale the game draws characters with (inferred: all parts span 0-2).
@@ -114,6 +146,59 @@ def wrap_mode(mode, mask):
     if mask == 0:
         return 0  # clamp
     return 2 if mode & 1 else 1  # mirror, repeat
+
+
+def rest_pose(rom, kind):
+    """Each part's (rotation, position) when standing straight with its arms down."""
+    start = SKELETON_TABLES[kind] - 0x80024C00
+    s = struct.unpack(">30f", rom[start:start + 120])
+
+    def add(p, r, x, y, z):
+        return [p[k] + r[0][k] * x + r[1][k] * y + r[2][k] * z for k in range(3)]
+
+    hips = [0, s[2] + s[4] + s[6] + 10, 0]
+    pose = [None] * 15
+    pose[0] = (LIMB, hips)
+
+    def limb(first, r, entry):
+        p = add(hips, r, s[entry], 0, s[entry + 1])
+        pose[first] = (LIMB, p)
+        p = add(p, LIMB, s[entry + 2], 0, 0)
+        pose[first + 1] = (LIMB, p)
+        pose[first + 2] = (LIMB, add(p, LIMB, s[entry + 4], 0, 0))
+
+    limb(1, LIMB, 2)
+    limb(4, LIMB, 8)
+    pose[7] = (TORSO, hips)
+    pose[8] = (HEAD, add(hips, TORSO, s[16], 0, 0))
+    limb(9, TORSO, 18)
+    limb(12, TORSO, 24)
+    return pose
+
+
+def joint_batches(rom, model, kind):
+    """Runs the game's joint code for a model in the rest pose. Returns a Part of its triangles."""
+    cpu = Cpu(rom)
+    cpu.put(ASSET_FILE_VRAM, rom[ASSET_FILE_ROM:ASSET_FILE_ROM + ASSET_FILE_SIZE])
+
+    def load_raw(c):
+        c.put(c.r[5], rom[c.r[4]:c.r[4] + c.r[6]])
+
+    cpu.stubs[0x80052410] = load_raw
+    cpu.w32(0x801D2C80, JOINT_DL)  # display list pointer
+    cpu.w32(0x801B0D20, 0x0A000000)  # slot 0's textures, shown as segment A
+    cpu.w8(OBJECT + 0x16F5, model)
+    cpu.w8(OBJECT + 0x175A, kind)
+    cpu.w8(OBJECT + 0x1768, 1)
+    cpu.w32(OBJECT + 0x1890, 0x09000000)
+    for index, (r, p) in enumerate(rest_pose(rom, kind)):
+        cpu.put(OBJECT + 0x13F8 + index * 0x30, struct.pack(">12f", *r[0], *r[1], *r[2], *p))
+    cpu.call(0x8006B3B8, OBJECT)  # claims a joint slot and loads the model's vertex template
+    cpu.call(0x8006B564, OBJECT)  # places the joints from the part matrices
+    cpu.call(0x8006C68C, OBJECT)  # draws hips and knees
+    cpu.call(0x8006EF90, OBJECT)  # draws waist and elbows
+    cpu.w32(cpu.u32(0x801D2C80), 0xDF000000)
+    return Part(cpu.ram, cpu.ram, JOINT_DL & 0xFFFFFF, ASSET_FILE_VRAM & 0xFFFFFF)
 
 
 def main():
@@ -137,6 +222,16 @@ def main():
             texture_list.append(dict(w=width, h=height, d=base64.b64encode(data).decode()))
         return textures[data]
 
+    def batch_entry(material, data, own):
+        kind = COMBINER_KIND.get(material[0], 0)
+        prim = material[1]
+        entry = dict(k=kind, c=[prim >> 24, prim >> 16 & 255, prim >> 8 & 255], ds=material[2], v=data)
+        if kind != 2:
+            entry["t"] = texture(material, own)
+            entry["ws"] = wrap_mode(material[9], material[10])
+            entry["wt"] = wrap_mode(material[11], material[12])
+        return entry
+
     skeletons = {t: struct.unpack(">30f", rom[a - 0x80024C00:a - 0x80024C00 + 120]) for t, a in SKELETON_TABLES.items()}
     models = []
     seen = {}
@@ -157,19 +252,21 @@ def main():
             batches = []
             triangles = 0
             walk = Part(dl, vtx, address & 0xFFFFFF)
-            for material, data in walk.batches.items():
-                kind = COMBINER_KIND.get(material[0], 0)
-                prim = material[1]
-                entry = dict(k=kind, c=[prim >> 24, prim >> 16 & 255, prim >> 8 & 255], ds=material[2], v=data)
-                if kind != 2:
-                    entry["t"] = texture(material, own)
-                    entry["ws"] = wrap_mode(material[9], material[10])
-                    entry["wt"] = wrap_mode(material[11], material[12])
-                    entry["s"] = (material[3] >> 24) & 0xFF
-                batches.append(entry)
+            for (_, material), data in walk.batches.items():
+                batches.append(batch_entry(material, data, own))
                 triangles += len(data) // 24
             parts.append(dict(b=batches, n=triangles))
-        models.append(dict(type=read_u32(rom, info), parts=parts))
+        kind = read_u32(rom, info)
+        joints = {}
+        if model >= FIRST_JOINTED_MODEL:
+            for (group, material), data in joint_batches(rom, model, kind).batches.items():
+                owner = JOINT_OWNERS[group - (JOINT_SLOTS & 0xFFFFFF)]
+                if isinstance(owner, tuple):
+                    owner = owner[0] if data[0] > 0 else owner[1]
+                joint = joints.setdefault(owner, dict(owner=owner, b=[], n=0))
+                joint["b"].append(batch_entry(material, data, own))
+                joint["n"] += len(data) // 24
+        models.append(dict(type=kind, parts=parts, joints=list(joints.values())))
 
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "character_viewer.html"), encoding="utf-8") as f:
         template = f.read()

@@ -35,6 +35,7 @@
   <div class="row"><button id="random">Random mix</button><button id="sheet">All models</button></div>
   <h2>View</h2>
   <label><span>Explode</span><input id="explode" type="range" min="0" max="100" value="0"></label>
+  <label><input type="checkbox" id="joints" checked> Show joints</label>
   <label><input type="checkbox" id="tint"> Colour by part</label>
   <label><input type="checkbox" id="wire"> Show triangles</label>
   <div id="warn"></div>
@@ -156,6 +157,7 @@ function restPose(type) {
   return out;
 }
 
+const IDENTITY = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
 function matrix(r, p) { return new Float32Array([r[0][0],r[0][1],r[0][2],0, r[1][0],r[1][1],r[1][2],0, r[2][0],r[2][1],r[2][2],0, p[0],p[1],p[2],1]); }
 function mul(a, b) {
   const o = new Float32Array(16);
@@ -189,21 +191,35 @@ function drawCharacter(view, parts, type, offset, opts) {
     const e = opts.explode / 100;
     const p = [m.p[0] + offset[0] + (m.p[0]-centre[0]) * e, m.p[1] + offset[1] + (m.p[1]-centre[1]) * e, m.p[2] + offset[2]];
     gl.uniformMatrix4fv(U.uModel, false, matrix(m.r, p));
-    for (const entry of buildPart(part)) {
-      const b = entry.batch;
-      gl.bindVertexArray(entry.vao);
-      const textured = b.k !== 2 && !opts.tint;
-      gl.uniform1f(U.uTextured, textured ? 1 : 0);
-      if (b.t !== undefined && textured) gl.bindTexture(gl.TEXTURE_2D, getTexture(b.t, b.ws, b.wt));
-      const c = opts.tint ? PART_COLOURS[i] : (b.k === 0 ? [1,1,1] : b.c.map(v => v/255));
-      gl.uniform3fv(U.uColour, c);
-      if (b.ds) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
-      if (opts.wire) {
-        for (let t = 0; t < entry.count; t += 3) gl.drawArrays(gl.LINE_LOOP, t, 3);
-      } else {
-        gl.drawArrays(gl.TRIANGLES, 0, entry.count);
-      }
-    }
+    for (const entry of buildPart(part)) drawBatch(entry, i, opts);
+  }
+  if (opts.explode === 0 && opts.joints) drawJoints(parts, opts);
+}
+
+function drawBatch(entry, colourIndex, opts) {
+  const b = entry.batch;
+  gl.bindVertexArray(entry.vao);
+  const textured = b.k !== 2 && !opts.tint;
+  gl.uniform1f(U.uTextured, textured ? 1 : 0);
+  if (b.t !== undefined && textured) gl.bindTexture(gl.TEXTURE_2D, getTexture(b.t, b.ws, b.wt));
+  const c = opts.tint ? PART_COLOURS[colourIndex] : (b.k === 0 ? [1,1,1] : b.c.map(v => v/255));
+  gl.uniform3fv(U.uColour, c);
+  if (b.ds) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
+  if (opts.wire) {
+    for (let t = 0; t < entry.count; t += 3) gl.drawArrays(gl.LINE_LOOP, t, 3);
+  } else {
+    gl.drawArrays(gl.TRIANGLES, 0, entry.count);
+  }
+}
+
+// A joint is built by the game from its two parts, so its vertices are already in place
+// for its own model's skeleton. It follows the part that decides its look.
+function drawJoints(parts, opts) {
+  gl.uniformMatrix4fv(U.uModel, false, IDENTITY);
+  for (let owner = 0; owner < 15; owner++) {
+    const joint = (resolve(parts[owner]).joints || []).find(j => j.owner === owner);
+    if (!joint) continue;
+    for (const entry of buildPart(joint)) drawBatch(entry, owner, opts);
   }
 }
 
@@ -215,7 +231,7 @@ function render() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.enable(gl.DEPTH_TEST);
   gl.frontFace(gl.CCW);
-  const opts = {explode: state.explode, tint: document.getElementById("tint").checked, wire: document.getElementById("wire").checked};
+  const opts = {explode: state.explode, joints: document.getElementById("joints").checked, tint: document.getElementById("tint").checked, wire: document.getElementById("wire").checked};
   if (state.sheet) {
     const ids = state.sheetIds || DATA.models.map((m, i) => m.alias === undefined ? i : -1).filter(i => i >= 0);
     const cols = Math.ceil(Math.sqrt(ids.length * canvas.width / canvas.height));
@@ -275,7 +291,7 @@ const selects = PART_NAMES.map((name, i) => {
 function sync() {
   selects.forEach((s, i) => { s.value = state.parts[i]; });
   skeleton.value = state.type;
-  const tris = state.parts.reduce((n, id, i) => n + resolve(id).parts[i].n, 0);
+  const tris = state.parts.reduce((n, id, i) => n + resolve(id).parts[i].n + ((resolve(id).joints || []).find(j => j.owner === i)?.n || 0), 0);
   const sources = [...new Set(state.parts)];
   document.getElementById("stats").textContent = `${tris} triangles\nParts from ${sources.length} model${sources.length > 1 ? "s" : ""}: ${sources.join(", ")}`;
   const off = [...new Set(state.parts.map(id => resolve(id).type))].filter(t => t !== state.type);
@@ -286,6 +302,7 @@ function sync() {
 whole.onchange = () => { state.parts.fill(+whole.value); state.type = resolve(+whole.value).type; state.sheet = false; sync(); };
 skeleton.onchange = () => { state.type = +skeleton.value; sync(); };
 document.getElementById("explode").oninput = e => { state.explode = +e.target.value; render(); };
+document.getElementById("joints").onchange = render;
 document.getElementById("tint").onchange = render;
 document.getElementById("wire").onchange = render;
 document.getElementById("sheet").onclick = () => { state.sheet = !state.sheet; render(); };

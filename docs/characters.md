@@ -31,7 +31,7 @@ Slot 0 is always Jean-Luc (id `0x22`), so segment A is his texture file. Other m
 
 ## Parts and detail levels
 
-`D_80109540[id]` points to `{u32 type, near, mid, far}`. Each of the last three points to 15 display list pointers in segment 7, one for each rigid body part. There is no skinning: each part is drawn whole under its own matrix.
+`D_80109540[id]` points to `{u32 type, near, mid, far}`. Each of the last three points to 15 display list pointers in segment 7, one for each rigid body part, drawn whole under its own matrix. On models from 34 up, [joints](#joints) built each frame fill the gaps between some of them.
 
 `func_800337A8` and `func_80059E5C` choose a list by comparing a value with thresholds (200 and 500 in the first, 250 and 600 in the second), apparently the distance from the camera *(inferred)*. `func_800A8B10` sets the initial list from the game mode. The chosen list is stored at `obj+0x1744`, and only the drawing function `func_80057100` reads it.
 
@@ -51,7 +51,7 @@ The grouping comes from `func_80069D44`, which fills the matrices. Left and righ
 
 ### Parts are independent
 
-Across all 62 models and all three detail levels, no part uses a vertex loaded by an earlier part, relies on an earlier part's texture or primitive colour, changes a segment, or calls another list, and each leaves the colour combiner on its default. A part from one model can therefore be drawn in place of any other.
+Across all 62 models and all three detail levels, no part uses a vertex loaded by an earlier part, relies on an earlier part's texture or primitive colour, changes a segment, or calls another list, and each leaves the colour combiner on its default. A part from one model can therefore be drawn in place of any other, though the joints around it still belong to the object's own model.
 
 ### Textures on a part
 
@@ -102,9 +102,31 @@ Each part's vertices are relative to its own joint. These axes come from matrice
 
 `func_80057100` also scales some parts: the head by (2.5, 2, 2.5) while `D_8010DCCC` is set, and the torso and upper arms by amounts in `obj+0x1968` and `obj+0x196C` that rise and fall over time, which looks like breathing *(inferred)*.
 
+## Joints
+
+Models 34 and up leave real holes at the waist, hips, knees and elbows, which the game fills with a stretched tube of 16 vertices rebuilt every frame. These tubes are where the crotch, knee areas and much of the elbow pads come from. Models 0-33 have no joints and don't need them.
+
+| Vertices in the slot | Joint | Between parts |
+|---|---|---|
+| `+0x208`, `+0x308` | Hips | 0 and 4, 0 and 1 |
+| `+0x008`, `+0x108` | Knees | 4 and 5, 1 and 2 |
+| `+0x608` | Waist | 0 and 7 |
+| `+0x408`, `+0x508` | Elbows | 9 and 10, 12 and 13, in an order not yet checked |
+
+- `func_8006B3B8` claims one of 8 slots of `0xC48` bytes at `D_801CC710`, storing its number at `obj+0x179B`. It reads `0x700` bytes from ROM `0x83E340 + (id - 0x22) * 0x700` to `0x8020E400`, holding the texture coordinates and other fixed values of each tube. The table therefore exists only for ids from `0x22`.
+- `func_8006B564` places the tubes. `func_8006B5B4`, `func_8006B9C0`, `func_8006E8B4` and `func_8006DCA4` take four points from each of the two parts and transform them by those parts' matrices. The points are signed bytes in tables indexed by `id - 0x22` in the asset file below, such as `D_2003150`, `D_20031B4`, `D_20032E0` and `D_2003344`. Each point becomes two vertices, each with a flat normal, so a tube has hard edges. `func_800337A8` and `func_80059E5C` call this, so it runs when a character's detail level is chosen each frame *(inferred)*.
+- `func_8006C68C` draws the hips and knees, and `func_8006EF90` the waist and elbows, right after the parts. Each loads a texture chosen by model id, from the object's texture file (`obj+0x1890`) or slot 0's (`D_801B0D20[0]`), then calls the same 16-vertex triangle list, `D_20036C8`.
+- `func_80057100` only calls them for Jean-Luc when `obj+0x1768` is 1 or 2, and for other ids above 34 when it is 1. Its meaning isn't known.
+
+[`tools/character_viewer.py`](../tools/character_viewer.py) runs these functions through [`tools/game_code.py`](../tools/game_code.py), a small MIPS interpreter, so it gets each model's joints without restating that logic. With arms held perfectly straight, thin slits remain at the elbows. This may only be the unnatural pose, since `func_8006E8B4` uses `func_80071B60` to place its points instead of the `func_80071A30` other joints use, and it hasn't been compared with the game.
+
+## Asset file
+
+Segment 2 points at `0x80229A00`, which holds ROM `0xF87B0` onwards. This was found from tables in the code: `D_2003150` is at ROM `0xFB900`. The code that loads it hasn't been traced. It holds the joint tables and the triangle list above, and at `+0xA8D0` a table of 2387 pointers into itself, read through `D_80165540[obj+0x16E2 - 1]` by `func_80066E68`, which looks like animation data *(inferred)*.
+
 ## Mixing parts
 
-This has been tested in the game on Jean-Luc, with parts from three other type 0 models. They drew with the right textures and lighting. This was only seen on a standing character from behind, so the front, walking and shooting are unchecked. Nothing in the game's code needs changing. Each part list entry is pointed at a small display list that selects the other model's files, calls its part and selects the original files again:
+This has been tested in the game on Jean-Luc, with parts from three other type 0 models. They drew with the right textures and lighting. This was only seen on a standing character from behind, so the front, walking and shooting are unchecked. The joints stayed Jean-Luc's, so his trousers showed at the crotch of the orange legs. Nothing in the game's code needs changing for the parts themselves. Each part list entry is pointed at a small display list that selects the other model's files, calls its part and selects the original files again:
 
 ```
 G_SEGMENT 7 = other model's display list
@@ -120,6 +142,9 @@ G_ENDDL
 - Files load with `func_80052410(rom, dest, size)` (display list) and `func_8005230C(rom, dest, size)` (compressed), which stores the unpacked size in `D_801390B8`. Mixing therefore isn't bound by the stage's roster limit.
 - Mixing skeleton types won't line up at the joints. The skeleton follows `obj+0x175A`, and parts were modelled for their own type's lengths. This has only been seen in the viewer, not in the game.
 
+- Joints are chosen as a set by `obj+0x16F5`, along with their texture file and the ring tables. Matching them to mixed parts is the unsolved step. A mod could draw its own tubes for each joint from the same tables, or fill the slot's vertices itself.
+- Models 0-33 have no joint data, so mixing their parts onto a model with joints depends on how those parts' ends happen to meet.
+
 Not yet tested: models other than the player, versus mode, and characters whose id the game's code compares against.
 
 ## Model ids
@@ -130,7 +155,7 @@ Not yet tested: models other than the player, versus mode, and characters whose 
 | 18-23 | Other models, not yet identified |
 | 24-33 | Models with only 15 display lists, so one detail level. 30-33 reuse 24's files. |
 | 34 | Jean-Luc, confirmed by code (the default player model) |
-| 35-43 | Characters in Jean-Luc's uniform, not matched to names |
+| 35-43 | The rest of Jean-Luc's S.C.A.T. team, in his uniform, not matched to names |
 | 44-53 | Characters in their own outfits, not matched to names |
 | 54-57 | Characters who use none of Jean-Luc's textures, including men in suits and a woman in a skirt |
 | 58-61 | One body in four jumpsuit colours |
@@ -150,6 +175,6 @@ The model id is `obj+0x16F5`. The code reads it about 170 times, often comparing
 ## Not yet known
 
 - Which id is which character, apart from Jean-Luc.
-- Where animation data is stored.
+- How the animation data is laid out.
 - What the display list commands outside the part lists draw.
 - Which rosters the other stages and versus mode use.
