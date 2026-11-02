@@ -22,7 +22,15 @@ Run these with Python 3, using your own ROM. They need no other packages.
 python tools/extract_characters.py <rom.z64> [output folder]
 ```
 
-This unpacks every character model and writes a texture sheet for each. The output folder defaults to `output/characters`. Output is ignored by Git and must not be shared.
+This unpacks every character model and writes a texture sheet for each. The output folder defaults to `output/characters`.
+
+```
+python tools/character_viewer.py <rom.z64> [output.html]
+```
+
+This builds a single page showing every character in 3D, where parts of different characters can be mixed. Open it in a browser. It defaults to `output/characters/viewer.html`.
+
+Output is ignored by Git and must not be shared.
 
 ## Reading these notes
 

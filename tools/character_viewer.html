@@ -1,0 +1,327 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WinBack Characters</title>
+<style>
+  :root { color-scheme: dark; --bg: #16181c; --panel: #20242a; --line: #363c45; --text: #e4e7ec; --dim: #99a1ad; --accent: #e0a63c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #side { width: 300px; flex: none; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 12px; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 16px 0 6px; }
+  label { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  label > span { flex: 0 0 74px; color: var(--dim); }
+  select { flex: 1; min-width: 0; background: #14161a; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 3px; font: inherit; }
+  input[type=range] { flex: 1; min-width: 0; }
+  button { background: #14161a; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  #stats { color: var(--dim); margin-top: 12px; white-space: pre-line; }
+  #warn { color: var(--accent); margin-top: 8px; }
+  #tip { position: absolute; left: 12px; bottom: 10px; color: var(--dim); pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>WinBack Characters</h1>
+  <label><span>Character</span><select id="whole"></select></label>
+  <label><span>Skeleton</span><select id="skeleton"></select></label>
+  <label><input type="checkbox" id="mirror" checked> Change left and right together</label>
+  <h2>Body parts</h2>
+  <div id="slots"></div>
+  <div class="row"><button id="random">Random mix</button><button id="sheet">All models</button></div>
+  <h2>View</h2>
+  <label><span>Explode</span><input id="explode" type="range" min="0" max="100" value="0"></label>
+  <label><input type="checkbox" id="tint"> Colour by part</label>
+  <label><input type="checkbox" id="wire"> Show triangles</label>
+  <div id="warn"></div>
+  <div id="stats"></div>
+</div>
+<div id="stage"><canvas id="c"></canvas><div id="tip">Drag to turn, scroll to zoom</div></div>
+<script>
+"use strict";
+const DATA = /*DATA*/null;
+const PART_NAMES = ["Hips", "Left thigh", "Left shin", "Left foot", "Right thigh", "Right shin", "Right foot", "Torso", "Head",
+  "Left upper arm", "Left forearm", "Left hand", "Right upper arm", "Right forearm", "Right hand"];
+const MIRROR = {1:4, 2:5, 3:6, 4:1, 5:2, 6:3, 9:12, 10:13, 11:14, 12:9, 13:10, 14:11};
+const SKELETON_NAMES = {0: "Medium", 1: "Slim", 2: "Large"};
+const PART_COLOURS = [[.9,.7,.2],[.2,.6,.9],[.2,.8,.9],[.2,.9,.7],[.9,.3,.3],[.9,.4,.5],[.9,.5,.2],[.5,.8,.3],[.9,.8,.7],[.5,.4,.9],[.6,.5,.9],[.7,.6,.9],[.9,.3,.8],[.9,.4,.7],[.9,.6,.8]];
+
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl2", {antialias: true, preserveDrawingBuffer: true});
+
+function shader(type, source) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, source);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const program = gl.createProgram();
+gl.attachShader(program, shader(gl.VERTEX_SHADER, `#version 300 es
+  in vec3 aPos; in vec3 aNormal; in vec2 aUv;
+  uniform mat4 uView; uniform mat4 uModel;
+  out vec3 vNormal; out vec2 vUv;
+  void main() { vNormal = mat3(uModel) * aNormal; vUv = aUv; gl_Position = uView * uModel * vec4(aPos, 1.0); }`));
+gl.attachShader(program, shader(gl.FRAGMENT_SHADER, `#version 300 es
+  precision mediump float;
+  in vec3 vNormal; in vec2 vUv;
+  uniform sampler2D uTex; uniform vec3 uColour; uniform float uTextured;
+  out vec4 outColour;
+  void main() {
+    vec4 t = uTextured > 0.5 ? texture(uTex, vUv) : vec4(1.0);
+    vec3 n = normalize(vNormal);
+    if (!gl_FrontFacing) n = -n;
+    float light = 0.45 + 0.75 * max(dot(n, normalize(vec3(0.4, 0.7, 0.6))), 0.0);
+    outColour = vec4(t.rgb * uColour * light, 1.0);
+  }`));
+gl.linkProgram(program);
+gl.useProgram(program);
+const U = {};
+for (const name of ["uView", "uModel", "uTex", "uColour", "uTextured"]) U[name] = gl.getUniformLocation(program, name);
+
+// Textures are shared, but their wrap mode belongs to the batch that uses them.
+const glTextures = new Map();
+function getTexture(index, ws, wt) {
+  const key = index * 9 + ws * 3 + wt;
+  if (glTextures.has(key)) return glTextures.get(key);
+  const info = DATA.textures[index];
+  const bytes = Uint8Array.from(atob(info.d), c => c.charCodeAt(0));
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, info.w, info.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+  const modes = [gl.CLAMP_TO_EDGE, gl.REPEAT, gl.MIRRORED_REPEAT];
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, modes[ws]);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, modes[wt]);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  glTextures.set(key, t);
+  return t;
+}
+
+function resolve(id) { return DATA.models[id].alias !== undefined ? DATA.models[DATA.models[id].alias] : DATA.models[id]; }
+
+// Each part's triangles in one vertex buffer, made when first shown.
+function buildPart(part) {
+  if (part.gl) return part.gl;
+  part.gl = part.b.map(batch => {
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(batch.v), gl.STATIC_DRAW);
+    const attrib = (name, size, offset) => {
+      const loc = gl.getAttribLocation(program, name);
+      if (loc < 0) return;
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, offset);
+    };
+    attrib("aPos", 3, 0); attrib("aNormal", 3, 12); attrib("aUv", 2, 24);
+    return {vao, count: batch.v.length / 8, batch};
+  });
+  return part.gl;
+}
+
+// ---- Skeleton ----
+// Part matrices run down the limbs along +X. Limbs: +X down, +Y forward, +Z towards the
+// character's right. Torso: +X up, +Y forward. Head: +X forward, +Y up. These come from
+// matrices logged in the running game.
+const LIMB = [[0,-1,0],[0,0,1],[-1,0,0]];
+const TORSO = [[0,1,0],[0,0,1],[1,0,0]];
+const HEAD = [[0,0,1],[0,1,0],[-1,0,0]];
+function restPose(type) {
+  const s = DATA.skeletons[type];
+  const add = (p, r, x, y, z) => [p[0]+r[0][0]*x+r[1][0]*y+r[2][0]*z, p[1]+r[0][1]*x+r[1][1]*y+r[2][1]*z, p[2]+r[0][2]*x+r[1][2]*y+r[2][2]*z];
+  const total = s[2] + s[4] + s[6] + 10;
+  const hips = [0, total, 0];
+  const out = new Array(15);
+  out[0] = {r: LIMB, p: hips};
+  const limb = (first, origin, r, entry) => {
+    let p = add(origin, r, s[entry], 0, s[entry + 1]);
+    out[first] = {r: LIMB, p};
+    p = add(p, LIMB, s[entry + 2], 0, 0);
+    out[first + 1] = {r: LIMB, p};
+    p = add(p, LIMB, s[entry + 4], 0, 0);
+    out[first + 2] = {r: LIMB, p};
+  };
+  limb(1, hips, LIMB, 2);
+  limb(4, hips, LIMB, 8);
+  out[7] = {r: TORSO, p: hips};
+  out[8] = {r: HEAD, p: add(hips, TORSO, s[16], 0, 0)};
+  limb(9, hips, TORSO, 18);
+  limb(12, hips, TORSO, 24);
+  return out;
+}
+
+function matrix(r, p) { return new Float32Array([r[0][0],r[0][1],r[0][2],0, r[1][0],r[1][1],r[1][2],0, r[2][0],r[2][1],r[2][2],0, p[0],p[1],p[2],1]); }
+function mul(a, b) {
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++)
+    o[c*4+r] = a[r]*b[c*4] + a[r+4]*b[c*4+1] + a[r+8]*b[c*4+2] + a[r+12]*b[c*4+3];
+  return o;
+}
+function perspective(aspect, near, far) {
+  const f = 1 / Math.tan(0.35);
+  return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)/(near-far),-1, 0,0,2*far*near/(near-far),0]);
+}
+function camera(yaw, pitch, distance, target) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const z = [sy*cp, sp, cy*cp];
+  const x = [cy, 0, -sy];
+  const y = [z[1]*x[2]-z[2]*x[1], z[2]*x[0]-z[0]*x[2], z[0]*x[1]-z[1]*x[0]];
+  const eye = [target[0]+z[0]*distance, target[1]+z[1]*distance, target[2]+z[2]*distance];
+  const d = v => -(v[0]*eye[0]+v[1]*eye[1]+v[2]*eye[2]);
+  return new Float32Array([x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0, d(x),d(y),d(z),1]);
+}
+
+// ---- State ----
+const state = {parts: new Array(15).fill(34), type: 0, explode: 0, yaw: 0.6, pitch: 0.1, distance: 330, sheet: false};
+
+function drawCharacter(view, parts, type, offset, opts) {
+  const pose = restPose(type);
+  const centre = [0, pose[0].p[1], 0];
+  for (let i = 0; i < 15; i++) {
+    const m = pose[i];
+    const part = resolve(parts[i]).parts[i];
+    const e = opts.explode / 100;
+    const p = [m.p[0] + offset[0] + (m.p[0]-centre[0]) * e, m.p[1] + offset[1] + (m.p[1]-centre[1]) * e, m.p[2] + offset[2]];
+    gl.uniformMatrix4fv(U.uModel, false, matrix(m.r, p));
+    for (const entry of buildPart(part)) {
+      const b = entry.batch;
+      gl.bindVertexArray(entry.vao);
+      const textured = b.k !== 2 && !opts.tint;
+      gl.uniform1f(U.uTextured, textured ? 1 : 0);
+      if (b.t !== undefined && textured) gl.bindTexture(gl.TEXTURE_2D, getTexture(b.t, b.ws, b.wt));
+      const c = opts.tint ? PART_COLOURS[i] : (b.k === 0 ? [1,1,1] : b.c.map(v => v/255));
+      gl.uniform3fv(U.uColour, c);
+      if (b.ds) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
+      if (opts.wire) {
+        for (let t = 0; t < entry.count; t += 3) gl.drawArrays(gl.LINE_LOOP, t, 3);
+      } else {
+        gl.drawArrays(gl.TRIANGLES, 0, entry.count);
+      }
+    }
+  }
+}
+
+function render() {
+  const w = canvas.clientWidth, h = canvas.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) { canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr); }
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.09, 0.1, 0.12, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.frontFace(gl.CCW);
+  const opts = {explode: state.explode, tint: document.getElementById("tint").checked, wire: document.getElementById("wire").checked};
+  if (state.sheet) {
+    const ids = state.sheetIds || DATA.models.map((m, i) => m.alias === undefined ? i : -1).filter(i => i >= 0);
+    const cols = Math.ceil(Math.sqrt(ids.length * canvas.width / canvas.height));
+    const rows = Math.ceil(ids.length / cols);
+    const cw = canvas.width / cols, ch = canvas.height / rows;
+    ids.forEach((id, n) => {
+      const x = (n % cols) * cw, y = canvas.height - (Math.floor(n / cols) + 1) * ch;
+      gl.viewport(x, y, cw, ch);
+      const proj = perspective(cw / ch, 10, 4000);
+      gl.uniformMatrix4fv(U.uView, false, mul(proj, camera(state.yaw, state.pitch, 330, [0, 92, 0])));
+      drawCharacter(null, new Array(15).fill(id), resolve(id).type, [0,0,0], opts);
+    });
+    drawLabels(ids, cols, rows);
+    return;
+  }
+  clearLabels();
+  const proj = perspective(canvas.width / canvas.height, 10, 4000);
+  gl.uniformMatrix4fv(U.uView, false, mul(proj, camera(state.yaw, state.pitch, state.distance, [0, 95, 0])));
+  drawCharacter(null, state.parts, state.type, [0,0,0], opts);
+}
+
+const labels = document.createElement("div");
+document.getElementById("stage").appendChild(labels);
+function clearLabels() { labels.innerHTML = ""; }
+function drawLabels(ids, cols, rows) {
+  labels.innerHTML = ids.map((id, n) => `<div style="position:absolute;left:${(n%cols)*100/cols}%;top:${Math.floor(n/cols)*100/rows}%;padding:2px 4px;color:#fff;font-weight:600;pointer-events:none">${id}</div>`).join("");
+}
+
+// ---- Interface ----
+const usable = DATA.models.map((m, i) => i);
+function modelLabel(id) { return `Model ${id}`; }
+function fill(select, value) {
+  select.innerHTML = usable.filter(i => DATA.models[i].alias === undefined).map(i => `<option value="${i}">${modelLabel(i)}</option>`).join("");
+  select.value = value;
+}
+const whole = document.getElementById("whole");
+fill(whole, 34);
+const skeleton = document.getElementById("skeleton");
+skeleton.innerHTML = [0,1,2].map(t => `<option value="${t}">${SKELETON_NAMES[t]}</option>`).join("");
+
+const slots = document.getElementById("slots");
+const selects = PART_NAMES.map((name, i) => {
+  const l = document.createElement("label");
+  l.innerHTML = `<span>${name.replace("Left ", "L ").replace("Right ", "R ")}</span>`;
+  const s = document.createElement("select");
+  fill(s, 34);
+  s.onchange = () => {
+    state.parts[i] = +s.value;
+    if (document.getElementById("mirror").checked && MIRROR[i] !== undefined) state.parts[MIRROR[i]] = +s.value;
+    sync();
+  };
+  l.appendChild(s);
+  slots.appendChild(l);
+  return s;
+});
+
+function sync() {
+  selects.forEach((s, i) => { s.value = state.parts[i]; });
+  skeleton.value = state.type;
+  const tris = state.parts.reduce((n, id, i) => n + resolve(id).parts[i].n, 0);
+  const sources = [...new Set(state.parts)];
+  document.getElementById("stats").textContent = `${tris} triangles\nParts from ${sources.length} model${sources.length > 1 ? "s" : ""}: ${sources.join(", ")}`;
+  const off = [...new Set(state.parts.map(id => resolve(id).type))].filter(t => t !== state.type);
+  document.getElementById("warn").textContent = off.length ? `Some parts were built for the ${off.map(t => SKELETON_NAMES[t]).join(" and ")} skeleton, so joints may not line up.` : "";
+  render();
+}
+
+whole.onchange = () => { state.parts.fill(+whole.value); state.type = resolve(+whole.value).type; state.sheet = false; sync(); };
+skeleton.onchange = () => { state.type = +skeleton.value; sync(); };
+document.getElementById("explode").oninput = e => { state.explode = +e.target.value; render(); };
+document.getElementById("tint").onchange = render;
+document.getElementById("wire").onchange = render;
+document.getElementById("sheet").onclick = () => { state.sheet = !state.sheet; render(); };
+document.getElementById("random").onclick = () => {
+  const pool = usable.filter(i => DATA.models[i].alias === undefined && resolve(i).type === state.type && i >= 34);
+  const pick = () => pool[Math.floor(Math.random() * pool.length)];
+  state.parts[0] = pick(); state.parts[7] = pick(); state.parts[8] = pick();
+  const arm = pick(), hand = pick(), leg = pick(), foot = pick();
+  [9,10,12,13].forEach(i => state.parts[i] = arm);
+  [11,14].forEach(i => state.parts[i] = hand);
+  [1,2,4,5].forEach(i => state.parts[i] = leg);
+  [3,6].forEach(i => state.parts[i] = foot);
+  state.sheet = false;
+  sync();
+};
+
+let dragging = null;
+canvas.onpointerdown = e => { dragging = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); };
+canvas.onpointermove = e => {
+  if (!dragging) return;
+  state.yaw -= (e.clientX - dragging[0]) * 0.01;
+  state.pitch = Math.max(-1.4, Math.min(1.4, state.pitch + (e.clientY - dragging[1]) * 0.01));
+  dragging = [e.clientX, e.clientY];
+  render();
+};
+canvas.onpointerup = () => { dragging = null; };
+canvas.addEventListener("wheel", e => { e.preventDefault(); state.distance = Math.max(60, Math.min(900, state.distance * Math.exp(e.deltaY * 0.001))); render(); }, {passive: false});
+window.addEventListener("resize", render);
+
+gl.activeTexture(gl.TEXTURE0);
+gl.uniform1i(U.uTex, 0);
+window.viewer = {state, sync, render};
+const start = new URLSearchParams(location.search);
+if (start.has("m")) { state.parts.fill(+start.get("m")); state.type = resolve(+start.get("m")).type; whole.value = start.get("m"); }
+if (start.has("sheet")) state.sheet = true;
+sync();
+</script>
+</body>
+</html>
