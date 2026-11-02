@@ -90,13 +90,16 @@ The extractor's `characters.txt` lists these for every model.
 
 The front end moves type 2 models down by 20 and type 1 models up by 10 when showing them (`func_80093A5C`).
 
-Each part's vertices are relative to its own joint. These axes come from matrices logged in the running game:
+Each part's vertices are relative to its own joint. These axes come from matrices logged in the running game, reduced to a character standing straight:
 
 | Parts | +X | +Y | +Z |
 |---|---|---|---|
-| Hips, limbs | Down the limb | Forward | Towards the character's right |
+| Hips, legs | Down the limb | Forward | Towards the character's right |
+| Arms, hands | Down the limb | Backward | Towards the character's left |
 | Torso | Up | Forward | Towards the character's left |
 | Head | Forward | Up | Towards the character's right |
+
+Arms and legs are built the same way but face opposite ways. `func_8006A508` always bends a limb's second bone towards its first bone's -Y, which is backward at the knee and forward at the elbow. Jean-Luc's elbow pads therefore sit on the arm's +Y side. In the logged poses each arm also twists about +X, and the upper arm and forearm always share +Z, the elbow's hinge. A hand with its stored angles at zero would match its forearm *(from the code, not logged)*. Its wide faces are ±Z, so the palm would face the leg *(inferred)*.
 
 `func_80069D44` places the hips and torso at the same point, sets the torso and head from angles, then calls `func_8006A508` for each limb. That function works out the two long bones from a target position (`obj+0xF08 + n * 12`, with `n` 2, 3, 6, 7) using the bone lengths, so a limb's bend is solved each frame rather than stored. The hand or foot then takes its own angles. Because targets are positions, the same animation can probably drive any skeleton *(inferred)*. Animation data itself isn't located yet.
 
@@ -104,21 +107,30 @@ Each part's vertices are relative to its own joint. These axes come from matrice
 
 ## Joints
 
-Models 34 and up leave real holes at the waist, hips, knees and elbows, which the game fills with a stretched tube of 16 vertices rebuilt every frame. These tubes are where the crotch, knee areas and much of the elbow pads come from. Models 0-33 have no joints and don't need them.
+Models 34 to 58 leave real holes at the waist, hips, knees and elbows, which the game fills with a stretched tube of 16 vertices rebuilt every frame. These tubes are where the crotch, knee areas and much of the elbow pads come from. Models 0-33 have no joints and don't need them. Models 59-61 need them but have [no joint data](#models-59-61).
 
 | Vertices in the slot | Joint | Between parts |
 |---|---|---|
 | `+0x208`, `+0x308` | Hips | 0 and 4, 0 and 1 |
 | `+0x008`, `+0x108` | Knees | 4 and 5, 1 and 2 |
 | `+0x608` | Waist | 0 and 7 |
-| `+0x408`, `+0x508` | Elbows | 9 and 10, 12 and 13, in an order not yet checked |
+| `+0x408` | Right elbow | 12 and 13 |
+| `+0x508` | Left elbow | 9 and 10 |
 
-- `func_8006B3B8` claims one of 8 slots of `0xC48` bytes at `D_801CC710`, storing its number at `obj+0x179B`. It reads `0x700` bytes from ROM `0x83E340 + (id - 0x22) * 0x700` to `0x8020E400`, holding the texture coordinates and other fixed values of each tube. The table therefore exists only for ids from `0x22`.
+- `func_8006B3B8` claims one of 8 slots of `0xC48` bytes at `D_801CC710`, storing its number at `obj+0x179B`. It reads `0x700` bytes from ROM `0x83E340 + (id - 0x22) * 0x700` to `0x8020E400`, holding the texture coordinates and other fixed values of each tube. The table therefore exists only for ids `0x22` to `0x3A`; what follows it is unrelated data.
 - `func_8006B564` places the tubes. `func_8006B5B4`, `func_8006B9C0`, `func_8006E8B4` and `func_8006DCA4` take four points from each of the two parts and transform them by those parts' matrices. The points are signed bytes in tables indexed by `id - 0x22` in the asset file below, such as `D_2003150`, `D_20031B4`, `D_20032E0` and `D_2003344`. Each point becomes two vertices, each with a flat normal, so a tube has hard edges. `func_800337A8` and `func_80059E5C` call this, so it runs when a character's detail level is chosen each frame *(inferred)*.
 - `func_8006C68C` draws the hips and knees, and `func_8006EF90` the waist and elbows, right after the parts. Each loads a texture chosen by model id, from the object's texture file (`obj+0x1890`) or slot 0's (`D_801B0D20[0]`), then calls the same 16-vertex triangle list, `D_20036C8`.
-- `func_80057100` only calls them for Jean-Luc when `obj+0x1768` is 1 or 2, and for other ids above 34 when it is 1. Its meaning isn't known.
+- `obj+0x1768` is the detail level in use: 1 near, 2 mid, 3 far. `func_80057100` only draws joints for Jean-Luc at near and mid, and for other ids above 34 at near. The mid and far part lists therefore don't rely on them, at least beyond Jean-Luc.
 
-[`tools/character_viewer.py`](../tools/character_viewer.py) runs these functions through [`tools/game_code.py`](../tools/game_code.py), a small MIPS interpreter, so it gets each model's joints without restating that logic. With arms held perfectly straight, thin slits remain at the elbows. This may only be the unnatural pose, since `func_8006E8B4` uses `func_80071B60` to place its points instead of the `func_80071A30` other joints use, and it hasn't been compared with the game.
+[`tools/character_viewer.py`](../tools/character_viewer.py) runs these functions through [`tools/game_code.py`](../tools/game_code.py), a small MIPS interpreter, so it gets each model's joints without restating that logic. Compared with Jean-Luc's vertices logged from the running game, given the same part matrices, its positions and texture coordinates were identical on two standing poses, while a third was up to 21 units off, probably because the logged vertices were a frame older than the matrices *(inferred)*. Normals differed by at most 1 in 127. The waist's normals are a fixed table, `D_80105DD0`, turned by the matrix of the whole object at `obj+0x13C8` (`func_8006E73C`), rather than taken from its two parts.
+
+Tubes don't close every gap. Thin slits remain at the elbows, knees and the outside of the right hip, and the same code leaves them in Jean-Luc's logged poses, so they aren't caused by the viewer. Other models' poses in the game haven't been compared. Straight arms make the elbow slits largest, so the viewer bends its elbows by 15°, which isn't a pose taken from the game.
+
+### Models 59-61
+
+The joint tables and the vertex template both have exactly 25 entries, for ids 34 to 58, and the texture jump tables in the drawing functions stop at the same id. Models 59-61 would read past the end at the near detail level, which gives long stray triangles and wrong images. They aren't in the two [rosters](#loading) identified so far, which only hold Jean-Luc and soldiers. Which stages use them isn't known, so the game may never show them up close *(inferred)*.
+
+These three share model 58's body, so the viewer gives them 58's joints with the model's own textures, and says so on screen. Models 59 and 61 keep the joint images at 58's offsets. Model 60 stores the identical hip and knee images elsewhere, at `0x1EE0` and `0x24E0` with palettes at `0x22E0` and `0x26E0`, and has a camouflage image at 58's offset. None of this is how the game draws them.
 
 ## Asset file
 
@@ -158,7 +170,7 @@ Not yet tested: models other than the player, versus mode, and characters whose 
 | 35-43 | The rest of Jean-Luc's S.C.A.T. team, in his uniform, not matched to names |
 | 44-53 | Characters in their own outfits, not matched to names |
 | 54-57 | Characters who use none of Jean-Luc's textures, including men in suits and a woman in a skirt |
-| 58-61 | One body in four jumpsuit colours |
+| 58-61 | One body in four jumpsuit colours. Only 58 has joint data. |
 
 The game's name list is at `0x8010DFE8`: JEAN-LUC, GUNT, DUKE, LEON, RYAN, BANDERAS, SRGT. THUNDER, LILA, JIN, ASH, CECILE, DAN, KENNETH, LISA, STEVE, JAKE, MIKE, THOMAS, LAW, KEITH, MATT, SECRETARY OF DEFENSE, ADVISOR, ASSISTANT, SOLDIER, PILOT, ENGINEER. Its order doesn't follow the model ids.
 

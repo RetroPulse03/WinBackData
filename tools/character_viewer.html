@@ -127,35 +127,8 @@ function buildPart(part) {
 }
 
 // ---- Skeleton ----
-// Part matrices run down the limbs along +X. Limbs: +X down, +Y forward, +Z towards the
-// character's right. Torso: +X up, +Y forward. Head: +X forward, +Y up. These come from
-// matrices logged in the running game.
-const LIMB = [[0,-1,0],[0,0,1],[-1,0,0]];
-const TORSO = [[0,1,0],[0,0,1],[1,0,0]];
-const HEAD = [[0,0,1],[0,1,0],[-1,0,0]];
-function restPose(type) {
-  const s = DATA.skeletons[type];
-  const add = (p, r, x, y, z) => [p[0]+r[0][0]*x+r[1][0]*y+r[2][0]*z, p[1]+r[0][1]*x+r[1][1]*y+r[2][1]*z, p[2]+r[0][2]*x+r[1][2]*y+r[2][2]*z];
-  const total = s[2] + s[4] + s[6] + 10;
-  const hips = [0, total, 0];
-  const out = new Array(15);
-  out[0] = {r: LIMB, p: hips};
-  const limb = (first, origin, r, entry) => {
-    let p = add(origin, r, s[entry], 0, s[entry + 1]);
-    out[first] = {r: LIMB, p};
-    p = add(p, LIMB, s[entry + 2], 0, 0);
-    out[first + 1] = {r: LIMB, p};
-    p = add(p, LIMB, s[entry + 4], 0, 0);
-    out[first + 2] = {r: LIMB, p};
-  };
-  limb(1, hips, LIMB, 2);
-  limb(4, hips, LIMB, 8);
-  out[7] = {r: TORSO, p: hips};
-  out[8] = {r: HEAD, p: add(hips, TORSO, s[16], 0, 0)};
-  limb(9, hips, TORSO, 18);
-  limb(12, hips, TORSO, 24);
-  return out;
-}
+// Each part's rotation and position in the rest pose, for each skeleton type.
+function restPose(type) { return DATA.poses[type]; }
 
 const IDENTITY = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
 function matrix(r, p) { return new Float32Array([r[0][0],r[0][1],r[0][2],0, r[1][0],r[1][1],r[1][2],0, r[2][0],r[2][1],r[2][2],0, p[0],p[1],p[2],1]); }
@@ -295,7 +268,11 @@ function sync() {
   const sources = [...new Set(state.parts)];
   document.getElementById("stats").textContent = `${tris} triangles\nParts from ${sources.length} model${sources.length > 1 ? "s" : ""}: ${sources.join(", ")}`;
   const off = [...new Set(state.parts.map(id => resolve(id).type))].filter(t => t !== state.type);
-  document.getElementById("warn").textContent = off.length ? `Some parts were built for the ${off.map(t => SKELETON_NAMES[t]).join(" and ")} skeleton, so joints may not line up.` : "";
+  const borrowed = [...new Set(sources.map(id => resolve(id).jointsFrom).filter(id => id !== undefined))];
+  document.getElementById("warn").textContent = [
+    off.length ? `Some parts were built for the ${off.map(t => SKELETON_NAMES[t]).join(" and ")} skeleton, so joints may not line up.` : "",
+    borrowed.length ? `The game has no joints for this model, so these use model ${borrowed.join(", ")}'s shapes.` : "",
+  ].filter(Boolean).join(" ");
   render();
 }
 

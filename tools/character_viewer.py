@@ -11,6 +11,7 @@ Usage: python tools/character_viewer.py <rom> [output.html]
 """
 import base64
 import json
+import math
 import os
 import struct
 import sys
@@ -31,6 +32,9 @@ COMBINER_KIND = {COMBINE_TEXTURE: 0, COMBINE_TINT: 1, COMBINE_COLOUR: 2}
 
 # Joints exist for models from Jean-Luc up. See docs/characters.md (Joints).
 FIRST_JOINTED_MODEL = 0x22
+LAST_JOINTED_MODEL = 0x3A  # the game's joint tables end here, so later models borrow this one's
+# Model 60 keeps some of those joints' images and palettes elsewhere in its texture file.
+BORROWED_IMAGE_MOVES = {60: {0x90038E0: 0x9001EE0, 0x9003CE0: 0x90022E0, 0x9003EE0: 0x90024E0, 0x90040E0: 0x90026E0}}
 ASSET_FILE_ROM = 0xF87B0
 ASSET_FILE_VRAM = 0x80229A00
 ASSET_FILE_SIZE = 0x33000
@@ -38,14 +42,17 @@ JOINT_SLOTS = 0x801CC710
 OBJECT = 0x80600000
 JOINT_DL = 0x80700000
 # Which part decides a joint's look when mixing, by its vertices in the slot.
-# Elbows share a list of (left, right), since their two blocks aren't tied to a side here.
-JOINT_OWNERS = {0x208: 4, 0x308: 1, 0x008: 5, 0x108: 2, 0x608: 0, 0x408: (10, 13), 0x508: (10, 13)}
+JOINT_OWNERS = {0x208: 4, 0x308: 1, 0x008: 5, 0x108: 2, 0x608: 0, 0x408: 13, 0x508: 10}
 
 # Rotations (three axes) of each kind of part in the rest pose. +Z of the world is
 # the way the character faces, +Y is up.
 LIMB = ((0, -1, 0), (0, 0, 1), (-1, 0, 0))
+ARM = ((0, -1, 0), (0, 0, -1), (1, 0, 0))
 TORSO = ((0, 1, 0), (0, 0, 1), (1, 0, 0))
 HEAD = ((0, 0, 1), (0, 1, 0), (-1, 0, 0))
+# A forearm turns about the elbow towards the upper arm's -Y. Fully straight arms leave slits in the elbow joints.
+ELBOW_BEND = math.radians(15)
+BENT_ARM = ((0, -math.cos(ELBOW_BEND), math.sin(ELBOW_BEND)), (0, -math.sin(ELBOW_BEND), -math.cos(ELBOW_BEND)), (1, 0, 0))
 
 
 def signed8(value):
@@ -160,19 +167,19 @@ def rest_pose(rom, kind):
     pose = [None] * 15
     pose[0] = (LIMB, hips)
 
-    def limb(first, r, entry):
-        p = add(hips, r, s[entry], 0, s[entry + 1])
-        pose[first] = (LIMB, p)
-        p = add(p, LIMB, s[entry + 2], 0, 0)
-        pose[first + 1] = (LIMB, p)
-        pose[first + 2] = (LIMB, add(p, LIMB, s[entry + 4], 0, 0))
+    def limb(first, parent, upper, lower, entry):
+        p = add(hips, parent, s[entry], 0, s[entry + 1])
+        pose[first] = (upper, p)
+        p = add(p, upper, s[entry + 2], 0, 0)
+        pose[first + 1] = (lower, p)
+        pose[first + 2] = (lower, add(p, lower, s[entry + 4], 0, 0))
 
-    limb(1, LIMB, 2)
-    limb(4, LIMB, 8)
+    limb(1, LIMB, LIMB, LIMB, 2)
+    limb(4, LIMB, LIMB, LIMB, 8)
     pose[7] = (TORSO, hips)
     pose[8] = (HEAD, add(hips, TORSO, s[16], 0, 0))
-    limb(9, TORSO, 18)
-    limb(12, TORSO, 24)
+    limb(9, TORSO, ARM, BENT_ARM, 18)
+    limb(12, TORSO, ARM, BENT_ARM, 24)
     return pose
 
 
@@ -191,7 +198,9 @@ def joint_batches(rom, model, kind):
     cpu.w8(OBJECT + 0x175A, kind)
     cpu.w8(OBJECT + 0x1768, 1)
     cpu.w32(OBJECT + 0x1890, 0x09000000)
-    for index, (r, p) in enumerate(rest_pose(rom, kind)):
+    pose = rest_pose(rom, kind)
+    cpu.put(OBJECT + 0x13C8, struct.pack(">12f", 1, 0, 0, 0, 1, 0, 0, 0, 1, *pose[0][1]))  # the whole object, for the waist's normals
+    for index, (r, p) in enumerate(pose):
         cpu.put(OBJECT + 0x13F8 + index * 0x30, struct.pack(">12f", *r[0], *r[1], *r[2], *p))
     cpu.call(0x8006B3B8, OBJECT)  # claims a joint slot and loads the model's vertex template
     cpu.call(0x8006B564, OBJECT)  # places the joints from the part matrices
@@ -232,7 +241,7 @@ def main():
             entry["wt"] = wrap_mode(material[11], material[12])
         return entry
 
-    skeletons = {t: struct.unpack(">30f", rom[a - 0x80024C00:a - 0x80024C00 + 120]) for t, a in SKELETON_TABLES.items()}
+    poses = {kind: [dict(r=r, p=p) for r, p in rest_pose(rom, kind)] for kind in SKELETON_TABLES}
     models = []
     seen = {}
     for model in range(MODEL_COUNT):
@@ -259,18 +268,21 @@ def main():
         kind = read_u32(rom, info)
         joints = {}
         if model >= FIRST_JOINTED_MODEL:
-            for (group, material), data in joint_batches(rom, model, kind).batches.items():
+            source = min(model, LAST_JOINTED_MODEL)
+            moves = BORROWED_IMAGE_MOVES.get(model, {})
+            for (group, material), data in joint_batches(rom, source, kind).batches.items():
+                material = tuple(moves.get(value, value) if index in (3, 4) else value for index, value in enumerate(material))
                 owner = JOINT_OWNERS[group - (JOINT_SLOTS & 0xFFFFFF)]
-                if isinstance(owner, tuple):
-                    owner = owner[0] if data[0] > 0 else owner[1]
                 joint = joints.setdefault(owner, dict(owner=owner, b=[], n=0))
                 joint["b"].append(batch_entry(material, data, own))
                 joint["n"] += len(data) // 24
         models.append(dict(type=kind, parts=parts, joints=list(joints.values())))
+        if model > LAST_JOINTED_MODEL:
+            models[-1]["jointsFrom"] = LAST_JOINTED_MODEL
 
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "character_viewer.html"), encoding="utf-8") as f:
         template = f.read()
-    data = json.dumps(dict(models=models, textures=texture_list, skeletons=skeletons), separators=(",", ":"))
+    data = json.dumps(dict(models=models, textures=texture_list, poses=poses), separators=(",", ":"))
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(template.replace("/*DATA*/null", data))
     print(f"Wrote {out_path} ({len(texture_list)} textures, {os.path.getsize(out_path) // 1024} KB)")
