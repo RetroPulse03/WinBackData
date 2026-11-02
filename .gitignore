@@ -1,0 +1,6 @@
+# Game data: never commit the ROM or anything taken from it.
+*.z64
+*.n64
+*.v64
+output/
+__pycache__/
