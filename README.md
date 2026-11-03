@@ -11,6 +11,9 @@ A reference for how *WinBack: Covert Operations* (N64, USA) works and where its 
 | [ROM map](docs/rom-map.md) | ROM layout, code segment, compression |
 | [Characters](docs/characters.md) | Character models, textures, body parts, loading |
 | [Game state](docs/game-state.md) | Main loop, stages, checkpoints, event scripts |
+| [Cheat codes](docs/cheat-codes.md) | Button codes, unlocks, Versus characters and endings, checked against the code |
+| [Animations](docs/animations.md) | Clip format, how clips are chosen, and the 612 unused ones |
+| [Cut content](docs/cut-content.md) | Everything suspected or confirmed unused, with its evidence |
 | [Camera](docs/camera.md) | Player camera movement and data |
 | [Rendering](docs/rendering.md) | Microcode, framebuffer and drawing details |
 
@@ -29,6 +32,18 @@ python tools/character_viewer.py <rom.z64> [output.html]
 ```
 
 This builds a single page showing every character in 3D, where parts of different characters can be mixed. Open it in a browser. It defaults to `output/characters/viewer.html`.
+
+```
+python tools/animations.py <rom.z64> viewer [output.html]
+```
+
+This builds a page that plays every animation as a stick figure, with a filter for the unused ones. Run it with no arguments for its other commands.
+
+```
+python tools/event_scripts.py <rom.z64> codes
+```
+
+This prints the button codes. The same tool also searches the event scripts by flag, map or game clock, and lists dialogue no script shows. Run it with no arguments for the full list.
 
 Output is ignored by Git and must not be shared.
 

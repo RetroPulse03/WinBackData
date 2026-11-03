@@ -43,4 +43,9 @@ The script interpreter is `func_8009AA9C`, with a jump table by opcode:
 - Opcode 42 (entry `0x8009BADC`) is a checkpoint. Its first argument is the checkpoint id. The command calls `func_8009C8E0` at `0x8009BB00` and still changes the saved copy afterwards.
 - Opcode 38 (entry `0x8009BA34`) loads another event file.
 
+- Opcodes 2 and 36 play an [animation](animations.md#playing-a-clip).
+- Opcode 4 shows a dialogue line. Opcode 9 sets a flag (`func_800993AC`). Opcode 13 moves to a map and entrance.
+
+An event's condition is a `u8` count, then 3-byte tests: a kind byte and a big-endian `u16` value, read by `func_8009BBB8` (table `jtbl_801195E0`). Kind 4 passes when the game clock `D_8010DD60`, in minutes, is at least the value. Kind 5 passes when flag `value >> 8` equals `value & 0xFF`. Kind 11 ends the list and passes. [`tools/event_scripts.py`](../tools/event_scripts.py) reads all of this. See [Cheat codes](cheat-codes.md#endings) for how the endings use it.
+
 A stage's checkpoints are its unique (map, id) pairs in script order. Map entry scripts often trigger a checkpoint straight away.

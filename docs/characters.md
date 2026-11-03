@@ -134,7 +134,7 @@ These three share model 58's body, so the viewer gives them 58's joints with the
 
 ## Asset file
 
-Segment 2 points at `0x80229A00`, which holds ROM `0xF87B0` onwards. This was found from tables in the code: `D_2003150` is at ROM `0xFB900`. The code that loads it hasn't been traced. It holds the joint tables and the triangle list above, and at `+0xA8D0` a table of 2387 pointers into itself, read through `D_80165540[obj+0x16E2 - 1]` by `func_80066E68`, which looks like animation data *(inferred)*.
+Segment 2 points at `0x80229A00`, which holds ROM `0xF87B0` onwards. This was found from tables in the code: `D_2003150` is at ROM `0xFB900`. The code that loads it hasn't been traced. It holds the joint tables and the triangle list above, and at `+0xA8D0` the headers of the 2387 [animation](animations.md) clips.
 
 ## Mixing parts
 
@@ -187,6 +187,5 @@ The model id is `obj+0x16F5`. The code reads it about 170 times, often comparing
 ## Not yet known
 
 - Which id is which character, apart from Jean-Luc.
-- How the animation data is laid out.
 - What the display list commands outside the part lists draw.
 - Which rosters the other stages and versus mode use.

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WinBack Animations</title>
+<style>
+  :root { color-scheme: dark; --bg: #14161c; --card: #1d2029; --line: #333845; --text: #e6e6e6; --dim: #9aa0ad; --accent: #ffc23c; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font: 14px system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; position: sticky; top: 0; background: var(--bg); padding: 8px 0; z-index: 2; }
+  select, input { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font: inherit; }
+  #count { color: var(--dim); }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px; cursor: pointer; }
+  .card b { color: var(--accent); }
+  .card small { color: var(--dim); display: block; }
+  .card canvas { width: 100%; aspect-ratio: 1 / 1.1; display: block; }
+  #big { position: fixed; inset: 0; background: rgba(0, 0, 0, .85); display: none; align-items: center; justify-content: center; z-index: 5; flex-direction: column; gap: 8px; padding: 16px; }
+  #big canvas { max-width: 100%; max-height: 80vh; background: var(--bg); border: 1px solid var(--line); }
+  #big label { display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<h1>WinBack animations</h1>
+<div class="bar">
+  <label>Show <select id="use"><option value="unused">Unused</option><option value="used">Used</option><option value="all">All</option></select></label>
+  <label>Motion <select id="motion"><option value="">Any</option></select></label>
+  <label>Skeleton <select id="skel"><option value="">Any</option><option>0</option><option>1</option><option>2</option></select></label>
+  <label>Clip <input id="find" type="number" min="1" max="2387" style="width:6em"></label>
+  <span id="count"></span>
+</div>
+<div id="grid"></div>
+<div id="big"><canvas id="bigc" width="640" height="640"></canvas><div id="bigt"></div><label>Turn <input id="turn" type="range" min="0" max="359" value="60"></label><small>Click outside the slider to close.</small></div>
+<script>
+const CLIPS = /*CLIPS*/null;
+const BONES = /*BONES*/null;
+const COLOURS = ["#ff7850", "#5aaaff", "#f0f0f0", "#ffc83c", "#78e678"];
+const $ = id => document.getElementById(id);
+for (const m of [...new Set(CLIPS.map(c => c.m))].sort()) { const o = document.createElement("option"); o.textContent = m; $("motion").append(o); }
+
+function draw(canvas, clip, time, turn) {
+  const ctx = canvas.getContext("2d"), w = canvas.width, h = canvas.height, frames = clip.p;
+  ctx.clearRect(0, 0, w, h);
+  const position = time % (frames.length + 6), pose = frames[Math.min(position | 0, frames.length - 1)];
+  const c = Math.cos(turn), s = Math.sin(turn);
+  const across = (p, i) => p[i * 3] * c + p[i * 3 + 2] * s;
+  // Fit the whole clip, since some travel far or drop a long way.
+  let left = Infinity, right = -Infinity, low = 0, high = 150;
+  for (const p of frames) for (let i = 0; i < 18; i++) {
+    left = Math.min(left, across(p, i)); right = Math.max(right, across(p, i));
+    low = Math.min(low, p[i * 3 + 1]); high = Math.max(high, p[i * 3 + 1]);
+  }
+  const scale = Math.min((w - 16) / Math.max(right - left, 1), (h - 24) / (high - low));
+  const x = i => w / 2 + (across(pose, i) - (left + right) / 2) * scale;
+  const y = i => h - 8 - (pose[i * 3 + 1] - low) * scale;
+  const ground = h - 8 + low * scale;
+  ctx.strokeStyle = "#444a58"; ctx.beginPath(); ctx.moveTo(0, ground); ctx.lineTo(w, ground); ctx.stroke();
+  ctx.lineWidth = Math.max(2, h / 160);
+  for (const [a, b, colour] of BONES) {
+    ctx.strokeStyle = COLOURS[colour]; ctx.beginPath(); ctx.moveTo(x(a), y(a)); ctx.lineTo(x(b), y(b)); ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+}
+
+const visible = new Set();
+const watcher = new IntersectionObserver(entries => { for (const e of entries) e.isIntersecting ? visible.add(e.target) : visible.delete(e.target); });
+function label(c) { return `<b>${c.i}</b> ${c.f} frames, skeleton ${c.k}<small>${c.m}${c.n.length ? " · named by " + c.n.join(", ") : " · named by nothing"}${c.e ? " · " + c.e + " events" : ""}</small>`; }
+function rebuild() {
+  const use = $("use").value, motion = $("motion").value, skel = $("skel").value, find = +$("find").value;
+  const list = CLIPS.filter(c => find ? c.i === find : (use === "all" || (use === "unused") === !c.n.length) && (!motion || c.m === motion) && (skel === "" || c.k === +skel));
+  $("count").textContent = list.length + " clips";
+  visible.clear(); watcher.disconnect();
+  const grid = $("grid"); grid.textContent = "";
+  for (const c of list) {
+    const card = document.createElement("div"); card.className = "card";
+    const canvas = document.createElement("canvas"); canvas.width = 200; canvas.height = 220; canvas.clip = c;
+    const text = document.createElement("div"); text.innerHTML = label(c);
+    card.append(canvas, text); card.onclick = () => openBig(c);
+    grid.append(card); watcher.observe(canvas);
+  }
+}
+let bigClip = null;
+function openBig(c) { bigClip = c; $("big").style.display = "flex"; $("bigt").innerHTML = label(c); }
+$("big").onclick = e => { if (e.target.id !== "turn") { bigClip = null; $("big").style.display = "none"; } };
+for (const id of ["use", "motion", "skel", "find"]) $(id).oninput = rebuild;
+let time = 0;
+setInterval(() => {
+  time++;
+  for (const canvas of visible) draw(canvas, canvas.clip, time, 1);
+  if (bigClip) draw($("bigc"), bigClip, time, +$("turn").value * Math.PI / 180);
+}, 90);
+rebuild();
+</script>
+</body>
+</html>
