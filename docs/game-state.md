@@ -48,4 +48,8 @@ The script interpreter is `func_8009AA9C`, with a jump table by opcode:
 
 An event's condition is a `u8` count, then 3-byte tests: a kind byte and a big-endian `u16` value, read by `func_8009BBB8` (table `jtbl_801195E0`). Kind 4 passes when the game clock `D_8010DD60`, in minutes, is at least the value. Kind 5 passes when flag `value >> 8` equals `value & 0xFF`. Kind 11 ends the list and passes. [`tools/event_scripts.py`](../tools/event_scripts.py) reads all of this. See [Cheat codes](cheat-codes.md#endings) for how the endings use it.
 
+- Continuing doesn't put the player where the checkpoint triggered. `func_8004C108` uses spawn 0 of the checkpoint's map unless `D_80159A3C` is set, and then it uses the spawn numbered like the checkpoint id (`D_80138224`). In map 0, the event that holds checkpoint 6 warps the player to entrance 6 first (`13(0, 6)`, then `42(6)`), so the two match there. Elsewhere, that the id always names the entrance is *(inferred)*: all 28 checkpoints tried had a matching spawn.
+- We found no code that sets `D_80159A3C`: its only direct references are the clear in `func_80073738` and reads in `func_8004C108` and `func_80099548`. Events with flag 0x40 don't run while it is set. It sits in the progress block, at `+0x12DC`. Its purpose is *(unconfirmed)*.
+- Spawns are at `D_80144700`, 0x1C bytes each, with the count in `D_8016A398`. `+0x18` is the spawn number and `+0x19` the type (0 player, 1 camera); `func_800513FC` needs both.
+
 A stage's checkpoints are its unique (map, id) pairs in script order. Map entry scripts often trigger a checkpoint straight away.
