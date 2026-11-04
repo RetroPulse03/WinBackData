@@ -2,7 +2,19 @@
 
 ## Main loop
 
-`D_80187FB8` is the main loop state: 0 runs the front end (`func_80073600` each frame), 1 runs gameplay (`func_8004BA40`).
+`D_80187FB8` asks the main loop to change state: 0 runs the front end (`func_80073600` each frame), 1 runs gameplay (`func_8004BA40`). It isn't a record of the current state: it read `0xFFFFFFFF` throughout a running mission, so that value looks like "no change asked for" *(inferred)*.
+
+`D_8016A41C` is what the game is currently running. Each object has a mask at `+0x36`, and `func_80028060` only updates an object if the mask's low byte shares a bit with this value's low byte. The high byte is checked the same way in the function after it *(probably for drawing, inferred)*.
+
+| Value | Seen during |
+|---|---|
+| `0x0101` | Normal play, including the camera's scripted views |
+| `0x0102`, then `0x0202` | The pause menu. `func_8007F708` saves the old value in `D_8011D5E0`, and closing the menu restores it. |
+| `0x0404` | The front end |
+| `0x0420` | One front end screen *(which one wasn't identified)* |
+| `0x0808` | The title intro and attract demo |
+
+The code at `0x800935DC` sets the low bits to `0x20`, and `func_800B5944` swaps `0x01` and `0x20` *(what these screens are wasn't identified)*.
 
 In the front end, `D_8010DBEA = 2` with a mode in `D_8010DBE9` (`func_8008F29C`) switches to gameplay after a 15-frame fade, setting `D_8016A41C = 0x0101` (normal play). The title intro and attract demo are gameplay with `D_8016A41C = 0x0808`, which skips loading event scripts, and `D_801390D4 = 1`.
 
