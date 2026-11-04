@@ -103,7 +103,14 @@ Arms and legs are built the same way but face opposite ways. `func_8006A508` alw
 
 `func_80069D44` places the hips and torso at the same point, sets the torso and head from angles, then calls `func_8006A508` for each limb. That function works out the two long bones from a target position (`obj+0xF08 + n * 12`, with `n` 2, 3, 6, 7) using the bone lengths, so a limb's bend is solved each frame rather than stored. The hand or foot then takes its own angles. Because targets are positions, the same animation can probably drive any skeleton *(inferred)*. Animation data itself isn't located yet.
 
-`func_80057100` also scales some parts: the head by (2.5, 2, 2.5) while `D_8010DCCC` is set, and the torso and upper arms by amounts in `obj+0x1968` and `obj+0x196C` that rise and fall over time, which looks like breathing *(inferred)*.
+`func_80057100` also scales some parts: the head by (2.5, 2, 2.5) while `D_8010DCCC` is set. While bit `0x40000000` of `obj+0xF4` is set, it scales the torso by (1, `obj+0x1968`, `obj+0x196C`) and each upper arm by (1, `obj+0x196C`, `obj+0x196C`), so they widen and deepen but keep their length. `func_80069D44` moves `+0x1968` by `+0x1974` each frame between 1.0 and 1.15 (1.1 outside normal play), with `+0x196C` moving at half that rate, and `+0x1970` sets the speed. This looks like breathing *(inferred)*. Logged on Jean-Luc in mission 1, the flag was set in every sample, `+0x1968` reached 1.155 and `+0x196C` 1.077. The scale is never below 1, so the torso is always at or above the width of its model.
+
+Scale checks, on Jean-Luc in mission 1 *(one frame's matrices, and one comparison screenshot measured by eye)*:
+
+- Each row of the torso's final matrix (`obj+0x1008 + 7 * 0x40`) equals the matching row of its float matrix (`obj+0x13F8 + 7 * 0x30`) times 1, `+0x1968` and `+0x196C`. Row Y is forward and row Z is sideways, so depth changes twice as much as width. The other parts have rows of length 1, apart from the upper arms.
+- Forcing the scale to 1.0 and to 1.15 changed only thin lines at the edges of the body in a captured frame.
+- The torso's model is 44 units wide and 27 deep, and the head is 16 wide. The torso's width and depth are nearly the same at all three detail levels. If a unit is about 1 cm, they are believable human sizes *(inferred from the skeleton's lengths)*.
+- Compared with a Switch Online screenshot taken from behind (a different scene and pose), torso width over torso height was about 0.87 there and 0.84 in the recompilation, head height over torso height about 0.33 in both, and torso height over belt-to-knee length about 1.25 and 1.22. This is Nintendo's emulation, not an N64.
 
 ## Joints
 
@@ -125,6 +132,8 @@ Models 34 to 58 leave real holes at the waist, hips, knees and elbows, which the
 [`tools/character_viewer.py`](../tools/character_viewer.py) runs these functions through [`tools/game_code.py`](../tools/game_code.py), a small MIPS interpreter, so it gets each model's joints without restating that logic. Compared with Jean-Luc's vertices logged from the running game, given the same part matrices, its positions and texture coordinates were identical on two standing poses, while a third was up to 21 units off, probably because the logged vertices were a frame older than the matrices *(inferred)*. Normals differed by at most 1 in 127. The waist's normals are a fixed table, `D_80105DD0`, turned by the matrix of the whole object at `obj+0x13C8` (`func_8006E73C`), rather than taken from its two parts.
 
 Tubes don't close every gap. Thin slits remain at the elbows, knees and the outside of the right hip, and the same code leaves them in Jean-Luc's logged poses, so they aren't caused by the viewer. Other models' poses in the game haven't been compared. Straight arms make the elbow slits largest, so the viewer bends its elbows by 15°, which isn't a pose taken from the game.
+
+Measured on one frame of Jean-Luc in mission 1, from a copy of the game's memory taken as the frame was submitted, the elbow tubes' ends lie up to about 0.5 units from the upper arm and 0.5 to 1.5 units from the forearm. The tubes are stored in whole world units: `func_80071B60` places each point, itself a whole number in the signed-byte tables, and truncates the result with `trunc.w.d`. That alone can move a point up to about 1.7 units *(that this causes the gaps is inferred from the code; the gaps are measured)*. At the usual camera distance a unit is about 0.15 pixels of the 320x240 picture, so these slits are a fraction of an N64 pixel, but they show at higher resolutions. Jean-Luc's near and mid detail levels give identical arm gaps, so a higher detail level would not close them.
 
 ### Models 59-61
 
@@ -154,10 +163,58 @@ G_ENDDL
 - Files load with `func_80052410(rom, dest, size)` (display list) and `func_8005230C(rom, dest, size)` (compressed), which stores the unpacked size in `D_801390B8`. Mixing therefore isn't bound by the stage's roster limit.
 - Mixing skeleton types won't line up at the joints. The skeleton follows `obj+0x175A`, and parts were modelled for their own type's lengths. This has only been seen in the viewer, not in the game.
 
-- Joints are chosen as a set by `obj+0x16F5`, along with their texture file and the ring tables. Matching them to mixed parts is the unsolved step. A mod could draw its own tubes for each joint from the same tables, or fill the slot's vertices itself.
 - Models 0-33 have no joint data, so mixing their parts onto a model with joints depends on how those parts' ends happen to meet.
 
-Not yet tested: models other than the player, versus mode, and characters whose id the game's code compares against.
+Not yet tested: mixing onto models other than the player, and skeleton types other than 0.
+
+## Replacing the main character
+
+The player can be given files of their own, with no changes to the game's code and without affecting anyone else. This was tested on mission 1, the opening helicopter cutscene and versus mode, in scripted runs only. The character stands, walks and aims with the right textures, while models 35-43 in the same cutscene keep the original uniform.
+
+The object keeps id `0x22`. The code compares the id about 170 times, so changing it would reach hardcoded behaviour. Everything is changed only while `func_80057100` draws that object and is put back when it returns:
+
+- **Files:** load private copies at `0x80400000` and up, and point `obj+0x188C`, `+0x1890` and `+0x1894` at them. Model files themselves are private to their id. Only textures are shared.
+- **Parts:** point `obj+0x1744` at lists that set segments 7, 8, 9 and A, then call the part. Jean-Luc's part lists read all of their images through segment A and none through segment 9, and most models from 35 up read some of theirs from it too. So A must point at the private copy of his textures during the draw, and back at the real ones afterwards (one `G_SEGMENT` appended to the display list when the function returns).
+- **Detail:** set `obj+0x1768` to 1. It is only read by `func_80057100`, so the character always draws at near detail, the level that joints are built for.
+
+### Joints from other models
+
+The model id decides a joint's look in several functions. Each can be given a different id for a moment, then have `0x22` put back:
+
+| Function | Reads the id for | Joints |
+|---|---|---|
+| `func_8006B3B8` | Fixed vertex values from the ROM, once when the slot is claimed | Each tube separately |
+| `func_8006B5B4`, `func_8006B9C0` | Positions | One leg's hip and knee each |
+| `func_8006E8B4`, `func_8006DCA4` | Positions | Elbows, waist |
+| `func_8006C68C` | Texture and its format | Hips and knees together |
+| `func_8006EF90` | Texture and its format | Waist and elbows together |
+
+Since `func_8006EF90` handles the waist and elbows as one, swapping the id gives one source for the hips and knees and one for the waist and elbows. A waist that matches the torso while the elbows match different arms would need more work. The fixed values are 7 blocks of `0x100` bytes in the `0x700` read from ROM: elbows at `+0x100` and `+0x200`, waist at `+0x000`, hips at `+0x300` and `+0x400`, knees at `+0x500` and `+0x600`. Each is copied into the slot by `func_8006DC18` and `func_8006DB10` (see `func_8006B3B8` for destinations). `func_8006C68C` and `func_8006EF90` also read `D_801B0D20[0]` directly rather than through segment A, so it must point at the private textures while drawing.
+
+Joints only exist for ids 34 to 58. Tested with hips and knees from model 51, and waist and elbows from model 53. Elbow creases similar to the [slits](#joints) in Jean-Luc's own joints remain.
+
+Also tested with model 34's parts and model 37's forearms, in a scripted mission 1 run. In the viewer, on a bright background, model 34's elbows leave a slit across the top of model 37's forearm and model 37's elbows close it, so the arm joints should follow the forearms. The waist looks the same from either of the two models from the front; other angles weren't compared.
+
+Model 34 is drawn in the opening cutscene as well as in play, sitting with the team, so replacing it covers that scene too. Other cutscenes haven't been checked. In that cutscene, models 35-43 are all drawn.
+
+### Repainting the private copies
+
+Since the files are private copies, a mod can overwrite bytes in them after loading, and nothing else in the game changes. Tested in a scripted mission 1 run, where the player's repainted head and clothes drew correctly. Whether the team in the opening cutscene keeps its look with repainted files wasn't checked.
+
+Jean-Luc's head at near detail reads these images, at offsets in his texture file:
+
+| Image | Format | Shows |
+|---|---|---|
+| `0x1040`, palette `0x1440` | CI8 64x16, mirrored in T | The front of the face. U runs down the head (hairline near U 17, eyes near 33, mouth near 52, chin at 64) and T runs out from the centre line, so left and right are the same pixels. |
+| `0x1640`, palette `0x1E40` | CI8 64x32 | Both sides of the head: hair, cheek and jaw |
+| `0x120`, `0x300`, `0x59B0` | CI4, CI4, RGBA16 | The back and top of the hair |
+| `0x240` | CI4 16x12 | Ear |
+| `0x2C0` | CI4 8x8 | Under the chin |
+| `0x0`, `0x55B0` | CI4, RGBA16 | Neck and collar |
+
+His eyebrow and the dark contouring over his eye are painted as one dark band, roughly U 28 to 33. The brow is the part above about 13.7 units up the head *(judged by eye)*.
+
+Colours on the clothes aren't all in images. The blue stripe on each boot is an I4 image tinted by `G_SETPRIMCOLOR` `0x4040FFFF`, at display list offsets `0x1930`, `0x1AD8`, `0x3190` and `0x3310`, so recolouring it means changing the private display list too. The offsets above are read from the display lists. The landmark positions along U were read by eye *(inferred)*.
 
 ## Model ids
 
@@ -165,9 +222,9 @@ Not yet tested: models other than the player, versus mode, and characters whose 
 |---|---|
 | 0-17 | Soldiers *(inferred from their appearance)*: 3 body builds in 6 colour schemes. All colours of a build share vertices and textures. Only `G_SETPRIMCOLOR` in the display list differs, tinting mostly greyscale textures. |
 | 18-23 | Other models, not yet identified |
-| 24-33 | Models with only 15 display lists, so one detail level. 30-33 reuse 24's files. |
+| 24-33 | Models with only 15 display lists, so one detail level. 30-33 reuse 24's files. `D_8011285C` lists them as 29, 24, 25, 26, 27, 28, 30, 31, 32, 33. Compared with the short names at `0x80112A80` (see [Text](text.md#name-lists)), 29 is Steve, 24 Jean-Luc, 25 Dan, 26 Mike, 27 Matt and 28 Lisa, which suggests they are the bodies for 3 or more players *(inferred, not seen in the game)*. Models 24 and 30-33 read Jean-Luc's head images through segment A, including the face at `0x1040`. |
 | 34 | Jean-Luc, confirmed by code (the default player model) |
-| 35-43 | The rest of Jean-Luc's S.C.A.T. team, in his uniform, not matched to names |
+| 35-43 | The rest of Jean-Luc's S.C.A.T. team, in his uniform. 37 is Jake, recognised by eye and not confirmed from the game's data. The others aren't matched to names. |
 | 44-53 | Characters in their own outfits, not matched to names |
 | 54-57 | Characters who use none of Jean-Luc's textures, including men in suits and a woman in a skirt |
 | 58-61 | One body in four jumpsuit colours. Only 58 has joint data. |
@@ -186,6 +243,6 @@ The model id is `obj+0x16F5`. The code reads it about 170 times, often comparing
 
 ## Not yet known
 
-- Which id is which character, apart from Jean-Luc.
+- Which id is which character, apart from Jean-Luc and (by eye) Jake.
 - What the display list commands outside the part lists draw.
 - Which rosters the other stages and versus mode use.

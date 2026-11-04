@@ -12,6 +12,10 @@ The game clears and draws only `(14,14)-(305,229)` of its 320x240 framebuffer an
 
 Each frame is drawn with two tasks: the scene, then the laser sight.
 
+## Frame timing
+
+The game doesn't wait for the RSP before starting its next update, and characters are drawn directly from live memory rather than from a copy for the frame: part matrices at `obj+0x1008` and joint vertices at `D_801CC710`. In a recompilation where the renderer reads a task on another thread with no delay, that memory changed during about a quarter of scene tasks. How often this overlap happens on real hardware hasn't been measured.
+
 ## Laser sight
 
 The laser uses L3DEX2 `G_LINE3D` (handler at IMEM `0x1618`). The line is a screen-space primitive whose width is `(w0 & 0xFF) + 3` quarter-pixels on each side: horizontal for steep lines, vertical with square ends for shallow ones. Lines ignore culling, and L3DEX2 TRI1/TRI2 draw wireframes.
