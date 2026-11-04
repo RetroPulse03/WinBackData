@@ -11,6 +11,7 @@ A reference for how *WinBack: Covert Operations* (N64, USA) works and where its 
 | [ROM map](docs/rom-map.md) | ROM layout, code segment, compression |
 | [Characters](docs/characters.md) | Character models, textures, body parts, loading |
 | [Game state](docs/game-state.md) | Main loop, stages, checkpoints, event scripts |
+| [Text](docs/text.md) | Dialogue archive, wrapping, name lists |
 | [Cheat codes](docs/cheat-codes.md) | Button codes, unlocks, Versus characters and endings, checked against the code |
 | [Animations](docs/animations.md) | Clip format, how clips are chosen, and the 612 unused ones |
 | [Cut content](docs/cut-content.md) | Everything suspected or confirmed unused, with its evidence |
