@@ -24,7 +24,7 @@ A direction `a` points along `(sin a, 0, cos a)`, with `(-cos a, 0, sin a)` to i
 | 1 | `func_80037C30` | Normal, with extra following while the player moves *(inferred)* |
 | 2 | `func_80037DDC` | While the player's state is 10 |
 | 3 | `func_80037F78` | Taking cover at a wall (player `+0xF4 & 0x100000`) *(inferred from a test run)* |
-| 4-8 | `func_80038070` to `func_800385FC` | Not looked at yet, except that mode 6 was active in a pause taken at the first mission's security camera view, with `+0x164` set and the game state `0x0101` underneath *(one reading)* |
+| 4-8 | `func_80038070` to `func_800385FC` | Not looked at yet, except that mode 6 was active in a pause taken at the first mission's security camera view, with `+0x164` set and the game state `0x0101` underneath *(one reading)*. `func_80038CB8` sets modes 6, 7 and 8 from the flags of the floor zone the player is in (`D_801D41D2 + 60 × player +0x8A`): with `0x200` set, `0x4000` gives 7, otherwise `0x4` gives 8, and otherwise 6. In modes 6 and 8 the HUD draws a camera frame's corners (see the rendering notes). |
 | 9 | `func_80036830` | While the player's state is 25. The update stops early and doesn't hand over a view. |
 
 ## Handing the view to the renderer

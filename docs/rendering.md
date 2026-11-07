@@ -44,6 +44,26 @@ The camera for view `n` looks from (`D_8015D6D8[n]`, `D_801B0CE8[n]`, `D_80178FB
 
 For a 50° 4:3 view, the true horizontal half angle is 31.9° and the game uses 30.4°, relying on the radius for the margin. Since `k` is fixed, a wider picture shows objects being hidden at its sides.
 
+## HUD
+
+The gameplay HUD is one object (pass `0x100`) whose draw function, `func_800D20CC`, writes texture rectangles straight into the scene display list (`D_801D2C80`). It brackets them with two static display lists, `D_8010AF58` (setup) and `D_8010AF88` (closing), and sets no scissor, so it draws under the view's `(14,14)-(306,230)`. Everything goes through the sprite routines around `func_8007A754`.
+
+The parts are drawn only for a single view (`D_8016A40E & 1`), outside the attract demo (`D_8016A41C & 0x800`) and while `D_8010EDE4` is 0:
+
+| Call | Draws | Rectangles seen |
+|---|---|---|
+| `func_800CF6A8(0, 212, 214)` | LIFE and the player's health bar, from player `+0x176B` | `(194,214)-(292,221)` |
+| `func_800CEC1C()` | Rounds left in the magazine. Not drawn in camera mode 9. | `(27,166)-(50,221)` |
+| `func_800CF7E8(0)` | Weapon icon and ammo count | `(52,199)-(82,221)` |
+| `func_800CFA9C()` | Sprite `D_80110668` at (276,28) and an animated one at (279,31), with a colour that changes when an enemy in the player's room (`+0x8E`) is in a certain state *(inferred to be an alert indicator, not seen in play)* | |
+| `func_800CF76C()` | A second health bar at (40,22), while `D_801D362C` is set *(not seen in play)* | |
+| `func_800D0B14` to `func_800D0E54` | `func_800D0088` with the tables `D_801109EC`, `D_80110AF8`, `D_80110C04`, `D_80110D10`, which `func_800D0B44` and its neighbours fill from the projected position of a targeted object (camera `+0x164`, `D_80138EF8`) *(inferred to be target markers, not seen in play)* | |
+
+Then, in any layout, `func_8007CBEC(dl, x1, y1, x2, y2, ...)` draws lines in `C0C0C0` at alpha `0x80`, depending on the player camera's mode (`D_80179280[0] + 0xEC`, a halfword):
+
+- Modes 6 and 8: the corners of a camera frame, 30 pixels long, at x 56 and 264 and y 48 and 192.
+- Mode 9: a crosshair, with arms from x 56 to 86 and 234 to 264 at y 120, and from y 48 to 78 and 162 to 192 at x 160.
+
 ## Frame timing
 
 The game doesn't wait for the RSP before starting its next update, and characters are drawn directly from live memory rather than from a copy for the frame: part matrices at `obj+0x1008` and joint vertices at `D_801CC710`. In a recompilation where the renderer reads a task on another thread with no delay, that memory changed during about a quarter of scene tasks. How often this overlap happens on real hardware hasn't been measured.
