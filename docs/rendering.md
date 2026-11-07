@@ -8,6 +8,8 @@ The game uses F3DEX2 and L3DEX2 2.08 for graphics. The audio microcode in use is
 
 The game clears and draws only `(14,14)-(305,229)` of its 320x240 framebuffer and leaves the border black for a TV's overscan to hide. That leaves 292x216 visible pixels. The area beyond 4:3 is never cleared.
 
+Scissors seen in a `WINBACK_DLDUMP` log of the intro and attract mode: a full-screen `(0,0)-(319,239)` every frame (the laser sight is drawn under it), `(14,14)-(306,230)` for the 3D and the clears, and `(14,28)-(306,212)` (inferred to be the cutscene letterbox, not confirmed).
+
 ## Frame structure
 
 Each frame is drawn with two tasks: the scene, then the laser sight.
