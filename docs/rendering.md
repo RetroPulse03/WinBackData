@@ -74,6 +74,17 @@ The laser uses L3DEX2 `G_LINE3D` (handler at IMEM `0x1618`). The line is a scree
 
 It uses a dithered alpha compare (`G_AC_DITHER`) and is the first draw of its own task.
 
+The functions that write `G_LINE3D` (`0x08000200` with the two vertices loaded just before). All but `func_8008DBE8` are object draw functions (`obj+0x28`); which pass each object uses wasn't checked:
+
+| Function | Line | Notes |
+|---|---|---|
+| `func_80047498` | A character's laser sight, `obj+0x0` to `obj+0x78` | Update `func_80046E84` |
+| `func_800D5884` | A map object's beam, from its parent's position to the parent's `obj+0x78` | Created with its parent by `func_800D49A0` (parent draw `func_800D500C`, update `func_800D5094`). Hidden while flag bit 5 of `D_8015881E[parent+0x126]` is clear, beyond a distance (`D_8011B950`) from the player and, in a single view, when `parent+0x8E` isn't the current area. No on-screen test. *Inferred to be the environmental lasers, not confirmed.* |
+| `func_80029464` | A shot's tracer, `obj+0x0` to `obj+0x78` | Created with update `func_80029260` |
+| `func_800C2588` | A short falling vertical line | Update `func_800C249C` |
+| `func_800845CC` | 7 lines through 14 points | Update `func_800843F0` (scattered pieces) |
+| `func_8008DBE8` | Many coloured lines | Not identified |
+
 ## Sky
 
 The game writes a 16-byte `G_TEXRECT` before the sky cloud plane to load TMEM. In F3DEX2, `G_TEXRECT` only stores its words and `G_RDPHALF_2` issues the rectangle, so this draws nothing on real hardware.
