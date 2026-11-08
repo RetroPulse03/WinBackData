@@ -29,7 +29,7 @@ The layout depends on `D_8016A40E` and `D_8016A41C` *(inferred to be the versus 
 `func_800262FC` calls `guPerspective` with one of three cameras:
 
 - **Normal play** (`D_8016A41C & 0x100` and `D_8010EDE4 == 0`): field of view `D_80103758`, copied from `D_80103754` (50°, changed by the camera code) when the camera is placed (`func_80026760`). Near 10, far 5500, or 10000 when `func_8003F53C` returns non-zero.
-- **`D_8010EDE4 != 0`, or the attract demo** (`D_8016A41C & 0x800`): field of view `D_8010375C` (35° in the ROM, set by `func_8009E1E0` and `func_800A09C8`), near 12, far 5500, with its own eye and target arrays (`D_8013A730`, `D_801BF9C0`, `D_80144E08` and `D_80188C48`, `D_8015D278`, `D_801CC620`). `D_8010EDE4` is written by event-script code (`func_8009E1E0`), so it is *inferred* to mark a scripted camera such as a cutscene. Not yet confirmed in play.
+- **`D_8010EDE4 != 0`, or the attract demo** (`D_8016A41C & 0x800`): field of view `D_8010375C` (35° in the ROM, set by `func_8009E1E0` and `func_800A09C8`), near 12, far 5500, with its own eye and target arrays (`D_8013A730`, `D_801BF9C0`, `D_80144E08` and `D_80188C48`, `D_8015D278`, `D_801CC620`). `D_8010EDE4` is written by event-script code (`func_8009E1E0`), and it was 1 exactly while the scripted scene near the start of stage 1 played (scripted run, 2026-11-08), so it marks a scripted camera. That the 35° field of view is used then is from the code, not measured.
 - **Otherwise** (menus): 50°, near 12, far 5500, with the camera at the origin.
 
 The camera for view `n` looks from (`D_8015D6D8[n]`, `D_801B0CE8[n]`, `D_80178FB0[n]`) at (`D_80158748[n]`, `D_8015D268[n]`, `D_801C3808[n]`).
