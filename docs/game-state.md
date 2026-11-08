@@ -65,3 +65,12 @@ An event's condition is a `u8` count, then 3-byte tests: a kind byte and a big-e
 - Spawns are at `D_80144700`, 0x1C bytes each, with the count in `D_8016A398`. `+0x18` is the spawn number and `+0x19` the type (0 player, 1 camera); `func_800513FC` needs both.
 
 A stage's checkpoints are its unique (map, id) pairs in script order. Map entry scripts often trigger a checkpoint straight away.
+
+## Players and split screen
+
+`D_8016A4EE` is the number of players, set when a mode starts. `D_8016A40E` holds the mode: bit 0 is Story (one player, one view) and bit 1 the 2P split. About 140 functions test bit 0, so it stands for "this is Story" rather than only for the layout.
+
+- **Creating players.** Stage init (`func_8004BD7C`, run on every map entry, doors included) calls `func_800593EC(i)` for each player. It stores the player object in `D_801390C0[i]` and the index at `+0x90`, sets the model id at `+0x16F5` (always `0x22`, Jean-Luc, in Story; otherwise `D_8010D59C[i]`) and creates the player's camera with `func_800347F0`, whose controller number (`camera+0x18`) is the player index.
+- **Start points.** `func_8004C108` fills each player's start point before that: position `D_8016A424` (12 bytes per player), `D_8016A39A` (u16), heading `D_8016A454` (float) and the camera's start position `D_8016A464` (12 bytes). In Story it only picks a spawn for player 0, so a second player's spawn id is left uninitialised. Map reloads (`D_8016A418` set) write only player 0's.
+- **Views.** `func_80025F10` builds each frame's two graphics tasks (scene, then laser sight). It draws one view if bit 0 of `D_8016A40E` is set or `D_8016A41C & 0x600`, two if bit 1 is set (`func_80026A10(views, view, 1, 8/3, flags)` for views 0 and 1, top and bottom), and four otherwise. `func_80026A10` stores the view in `D_8016A40F`, and its camera comes from per-controller arrays the camera writes through `func_80026760` / `func_800266D0`.
+- **Two players in Story** work with the game's own code: keeping the count at 2 from the start point lookup on, giving player 1 player 0's start point and drawing the two-view split gives each player their own controller and view (tested in a scripted run on stage 1, 2026-11-08). The Story HUD (`func_800D20CC`) still draws once over the whole screen for player 0. How the game treats player 1's health, death, events and pause hasn't been checked.
