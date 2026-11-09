@@ -235,9 +235,13 @@ The game's name list is at `0x8010DFE8`: JEAN-LUC, GUNT, DUKE, LEON, RYAN, BANDE
 
 `func_8004C438` loads a stage. It passes a list of ids ending in `0xFF` to `func_8004D144`, and `func_8004D39C` loads each into the next free slot. Slot pointers are in `D_801CC6B8` (display list), `D_801B0D20` (textures) and `D_80144E18` (vertices). Ids that share files are only loaded once (`func_8004D8B0`).
 
-Two rosters are at `D_80116A70` and `D_80116A80`, chosen by area group. Both start with Jean-Luc. Data is packed from `0x8025CA00`. The next fixed load is at `0x802A4A00`, which suggests a limit of `0x48000` bytes *(inferred)*. These rosters use 84% and 81% of that.
+Two rosters are at `D_80116A70` and `D_80116A80`, chosen by area group, in Story. Both start with Jean-Luc. Data is packed from `0x8025CA00`. The next fixed load is at `0x802A4A00`, which suggests a limit of `0x48000` bytes *(inferred)*. These rosters use 84% and 81% of that. With more than one player there is no roster: `func_8004C438` loads Jean-Luc and each player's model, taking player `p`'s id from `D_8016A4A9 + 3 × p + D_8016A4B9[p]` and storing it in `D_8010D59C[p]` for player creation. The 3 entries per player fit Team Battle's three members, used in turn (`D_8016A4B9[p]`, see [Rendering](rendering.md#story-and-versus)) *(inferred)*.
 
-`func_800A8B10` copies a model's slot pointers to `obj+0x188C` (display list), `obj+0x1890` (textures) and `obj+0x1894` (vertices).
+`func_800A8B10` sets a character up from its model id: the skeleton type (`obj+0x175A`) and the part list for the detail level (`obj+0x1744`) from `D_80109540[id]`, then copies the model's slot pointers to `obj+0x188C` (display list), `obj+0x1890` (textures) and `obj+0x1894` (vertices). If the id isn't loaded (`func_8004D570` returns -1) it uses the files at `D_80138EEC`, `D_80138EF0` and `D_80138EF4`. Player creation (`func_800593EC`) writes the id just before calling it.
+
+`func_8004D6E8(obj, n)` loads one character's own three files to `0x8027CA00` (`n` = 0) or `0x80322400 + (n - 1) × 0x12000`, and points the character at them. It is only called from `func_800937C4` *(inferred to be the Versus character screen, see [Game state](game-state.md#players-and-split-screen))*.
+
+Model 35 has skeleton type 1. Its files are 0x3920 bytes of display list, 0x4A00 of vertices and 0x4FF0 of textures unpacked, about 53 KB, more than either Story roster leaves free (16-19% of `0x48000`, 47-56 KB). The story co-op mod loads it at `0x80700000`, outside the game's memory, and points player 2 at it after `func_800A8B10`.
 
 The model id is `obj+0x16F5`. The code reads it about 170 times, often comparing it with specific ids, so changing a character's model will reach hardcoded behaviour.
 
