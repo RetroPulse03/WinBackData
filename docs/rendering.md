@@ -42,7 +42,7 @@ The camera for view `n` looks from (`D_8015D6D8[n]`, `D_801B0CE8[n]`, `D_80178FB
 2. The square `pos ± radius` (x and z) is tested against two lines through the camera, at its heading ± a half angle. If all four corners are outside either line, the object is hidden.
 3. The half angle is `fov × π / 180 × 0.5 × k`, with `k = 1.21667` for a 4:3 view and `2.02778` for an 8:3 view (`D_8016A40E & 2`). In normal play, 0.2 is added to `k` when the camera object's `+0xEC` is 6. In normal play the heading is the camera's `+0x10` plus π; otherwise it comes from the eye and target arrays.
 
-For a 50° 4:3 view, the true horizontal half angle is 31.9° and the game uses 30.4°, relying on the radius for the margin. Since `k` is fixed, a wider picture shows objects being hidden at its sides.
+For a 50° 4:3 view, the true horizontal half angle is 31.9° and the game uses 30.4°, relying on the radius for the margin. Since `k` is fixed, a wider picture shows objects being hidden at its sides. The 8:3 factor comes from `D_8016A40E & 2` alone, so a Story game drawn as the two-view split by a mod tests its wide views with the 4:3 angle and hides objects towards the sides of each half (seen in the co-op mod's play-test, 2026-11-09). The recomp's view test hook gives such a split the 8:3 factor.
 
 ## HUD
 
@@ -82,6 +82,8 @@ The HUD object's update function, `func_800D1E24`, does the per-frame work. Stag
 | `D_80110AF8` | `func_800D0BE0` | `func_800D0C10` | `D_80138EF8[p]`, while the player has `+0xF8 & 0x80000` (inferred: aiming) | Each |
 | `D_80110C04` | `func_800D0CCC` | `func_800D0CF8` | `D_80188C38[p]` *(not identified)* | Each |
 | `D_80110D10` | `func_800D0E54` (00 DE FF) | `func_800D0E88` | `D_801CC6F8`, one object for the whole game *(not identified)* | Player 0, Story only |
+
+The updates mark the object's point at `+0x164`/`+0x168`/`+0x16C` with `func_800CFCC8(player, table, x, y, z)`, which projects it with the player's camera arrays and places the result by the mode: with `D_8016A40E & 1` around (160, 120) at scale 120, the whole screen; with 2 players around x 160 and y 67.1 (player 0) or 171 (player 1) at scale 72, each player's half; with 3 or 4 around the player's quarter. It only computes and stores. So a Story game drawn as the two-view split places every marker as if for one full view, across both halves (seen in the co-op mod's play-test, 2026-11-09); the mod clears bit 0 while the function runs.
 
 ### Story and Versus
 
