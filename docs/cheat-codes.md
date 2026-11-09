@@ -43,7 +43,7 @@ The codes are read on the "Press Start" screen (front-end state `0x0A`), from co
 
 The codes are applied when the title moves on to state `0x0C`, which comes a couple of seconds after Start if the game checks the Controller Pak first.
 
-L Button Recovery is ignored while `D_8010DD31` is `0xFF` *(inferred: no Controller Pak slot in use)*. Its effect in `func_800588FC` only runs when bit `0x01` of `D_8016A40E` is set *(inferred: normal play, not Versus)*. It works while L is held, so it makes you very hard to kill rather than healing once.
+L Button Recovery is ignored while `D_8010DD31` is `0xFF` *(inferred: no Controller Pak slot in use)*. Its effect in `func_800588FC` only runs when bit `0x01` of `D_8016A40E` is set, which means one player (see [Rendering > HUD](rendering.md#hud)). It works while L is held, so it makes you very hard to kill rather than healing once.
 
 Big Head is in `func_80057100`'s drawing loop: part 9 of every character gets a scale of 2. It applies to everyone drawn, not only the player.
 
