@@ -224,7 +224,7 @@ Colours on the clothes aren't all in images. The blue stripe on each boot is an 
 | 18-23 | Other models, not yet identified |
 | 24-33 | Models with only 15 display lists, so one detail level. 30-33 reuse 24's files. `D_8011285C` lists them as 29, 24, 25, 26, 27, 28, 30, 31, 32, 33. Compared with the short names at `0x80112A80` (see [Text](text.md#name-lists)), 29 is Steve, 24 Jean-Luc, 25 Dan, 26 Mike, 27 Matt and 28 Lisa, which suggests they are the bodies for 3 or more players *(inferred)*. This fits what 3- and 4-player Versus shows in play: low-detail models in set colours and a much shorter character list than 2-player Versus. Which model each Versus character uses hasn't been traced. Models 24 and 30-33 read Jean-Luc's head images through segment A, including the face at `0x1040`. |
 | 34 | Jean-Luc, confirmed by code (the default player model) |
-| 35-43 | The rest of Jean-Luc's S.C.A.T. team, in his uniform. 37 is Jake, recognised by eye and not confirmed from the game's data. The others aren't matched to names. |
+| 35-43 | The rest of Jean-Luc's S.C.A.T. team, in his uniform. The character screen's model table (`0x8011283C`, see [Text > Name lists](text.md#name-lists)) gives 35 Lisa, 36 Law, 37 Jake, 38 Mike, 39 Keith, 40 Matt, 41 Steve, 42 Tom and 43 Dan. |
 | 44-53 | Characters in their own outfits, not matched to names |
 | 54-57 | Characters who use none of Jean-Luc's textures, including men in suits and a woman in a skirt |
 | 58-61 | One body in four jumpsuit colours. Only 58 has joint data. |
