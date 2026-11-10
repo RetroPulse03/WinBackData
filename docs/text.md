@@ -34,7 +34,7 @@ Letters have their own widths, in the table at `D_8010AE30`: width, height, and 
 | Address | Used for | Notes |
 |---|---|---|
 | `0x8010DFE8` | The speaker's name, above dialogue | Indexed by speaker byte. The Japanese names follow the English ones and aren't used in this version *(inferred)*. |
-| `0x801129E4` | Versus with up to 2 players, and the character screen | Entry 0 is the player |
+| `0x801129E4` | Versus with up to 2 players, and the character screen | Entry 0 is the player. The bytes at `0x8011283C` give each of the first 20 entries' model id: `22 2B 29 23 25 26 2A 24 28 27 2F 35 32 33 2E 2D 30 31 34 2C`, so entry 3, `LISA`, is model 35 (`0x23`) and entry 4, `JAKE`, model 37. |
 | `0x80112A80` | Versus with 3 or more players | 6 short names. Entry 1 is `JEAN`, entry 0 `STEVE`. |
 
 These lists hold pointers, so one entry can be pointed at a new string of any length.
